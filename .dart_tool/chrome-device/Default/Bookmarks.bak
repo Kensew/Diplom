@@ -1,0 +1,249 @@
+{
+   "checksum": "c201dab93bd66b09ff218784d4ea1fa9",
+   "roots": {
+      "bookmark_bar": {
+         "children": [ {
+            "date_added": "13412424146695291",
+            "date_last_used": "13422559500763968",
+            "guid": "6e3669b4-857d-4d0b-b796-9531422c5c5a",
+            "id": "7",
+            "name": "Все задачи - WEEEK",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://app.weeek.net/ws/880437",
+            "visit_count": 39
+         }, {
+            "date_added": "13313865595792457",
+            "date_last_used": "13423999242239064",
+            "guid": "bf842f38-d627-47b6-8e77-6c4c36a0400b",
+            "id": "8",
+            "name": "(1229) YouTube",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://www.youtube.com/",
+            "visit_count": 280
+         }, {
+            "date_added": "13408989711318903",
+            "date_last_used": "13423963128552061",
+            "guid": "73805ebc-8a02-4999-b15a-a885f499bc10",
+            "id": "9",
+            "name": "Twitch",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://www.twitch.tv/?lang=ru&ysclid=milvbu0mnf50479922",
+            "visit_count": 29
+         }, {
+            "date_added": "13327570226314121",
+            "date_last_used": "13414460754881119",
+            "guid": "c75d661b-8e71-45eb-9c00-cdb1207ee9f0",
+            "id": "10",
+            "name": "Чат",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://chat.openai.com/",
+            "visit_count": 8
+         }, {
+            "date_added": "13305130128947933",
+            "date_last_used": "13423908693024378",
+            "guid": "dd00b8e7-decf-4765-bebf-d527eebde5b5",
+            "id": "11",
+            "name": "lichess.org • Бесплатные шахматы онлайн",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://lichess.org/",
+            "visit_count": 139
+         }, {
+            "date_added": "13402687442156251",
+            "date_last_used": "13418218132017343",
+            "guid": "bbcdda89-0ff7-445a-970a-c39254ed76c1",
+            "id": "12",
+            "name": "Mail: Почта, Облако, Календарь, Заметки, Покупки — сервисы для работы и жизни",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://mail.ru/?ysclid=mfpn4gnbq7329963378",
+            "visit_count": 3
+         }, {
+            "date_added": "13304862794744085",
+            "date_last_used": "13417918421775314",
+            "guid": "30fad000-40bf-41c5-aa55-c7e03a83b378",
+            "id": "13",
+            "name": "Tanki Online",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://tankionline.com/play/",
+            "visit_count": 2
+         }, {
+            "date_added": "13309296973180886",
+            "date_last_used": "0",
+            "guid": "14990b72-1f85-47d4-b863-6e4b23b21a43",
+            "id": "14",
+            "name": "Internet Archive: Wayback Machine",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://archive.org/web/",
+            "visit_count": 0
+         }, {
+            "date_added": "13318692309467086",
+            "date_last_used": "0",
+            "guid": "d1aa6cfe-8c2e-4e11-9df1-c9f47c5e6547",
+            "id": "15",
+            "name": "Онлайн аудио конвертер - конвертировать звук в MP3, WAV, MP4, M4A, OGG или рингтон для iPhone",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://online-audio-converter.com/ru/",
+            "visit_count": 0
+         }, {
+            "date_added": "13319398135582507",
+            "date_last_used": "0",
+            "guid": "1e0a374b-8616-4bdd-963e-32184c425c78",
+            "id": "16",
+            "name": "Конвертер Youtube Mp3 | Mp3 Youtube",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://mp3y.download/ru/youtube-mp3-293-converter",
+            "visit_count": 0
+         }, {
+            "date_added": "13319652320226841",
+            "date_last_used": "0",
+            "guid": "cf395026-ea0d-4d42-bee2-95c87a1c14a2",
+            "id": "17",
+            "name": "Кинопоиск",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://www.kinopoisk.ru/",
+            "visit_count": 0
+         }, {
+            "date_added": "13331662911677168",
+            "date_last_used": "0",
+            "guid": "5ea69dd1-23c3-4de3-b75e-b49e207c6bfb",
+            "id": "18",
+            "name": "Эмиль лох",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://app.recraft.ai/project/c72bea58-d5aa-4746-8e93-4bec946e135e",
+            "visit_count": 0
+         }, {
+            "date_added": "13402442942155610",
+            "date_last_used": "13424017774842606",
+            "guid": "a10cce55-2d88-4564-ba3f-a9f08da03631",
+            "id": "19",
+            "name": "Яндекс Музыка — собираем музыку и подкасты для вас",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://music.yandex.ru/",
+            "visit_count": 190
+         }, {
+            "date_added": "13403646440236217",
+            "date_last_used": "13414897900123692",
+            "guid": "81a32735-3908-41f8-ad55-b606b68944df",
+            "id": "20",
+            "name": "Сапёр Онлайн (от Toxic Pixels) - играть онлайн бесплатно на сервисе Яндекс Игры",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://yandex.ru/games/app/172270",
+            "visit_count": 25
+         }, {
+            "date_added": "13424007008130546",
+            "date_last_used": "0",
+            "guid": "ecf1df81-9d7f-4068-aba6-8484b35f9c40",
+            "id": "21",
+            "name": "users - Acme",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "http://127.0.0.1:8090/_/#/collections?collection=users",
+            "visit_count": 1
+         } ],
+         "date_added": "13424019400082361",
+         "date_last_used": "0",
+         "date_modified": "13424007008130546",
+         "guid": "0bc5d13f-2cba-5d74-951f-3f233fe6c908",
+         "id": "1",
+         "name": "Панель избранного",
+         "source": "unknown",
+         "type": "folder"
+      },
+      "other": {
+         "children": [  ],
+         "date_added": "13424019400082361",
+         "date_last_used": "0",
+         "date_modified": "0",
+         "guid": "82b081ec-3dd3-529c-8475-ab6c344590dd",
+         "id": "2",
+         "name": "Другое избранное",
+         "source": "unknown",
+         "type": "folder"
+      },
+      "synced": {
+         "children": [ {
+            "date_added": "13316636266828643",
+            "date_last_used": "0",
+            "guid": "14ae0615-7456-478b-92a8-213f7d2cc548",
+            "id": "22",
+            "name": "Яндекс",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://www.ya.ru/?win=574&clid=2416149-4&from=dist_bookmark",
+            "visit_count": 0
+         }, {
+            "date_added": "13316636266828652",
+            "date_last_used": "0",
+            "guid": "b334dfea-21c9-4b58-97eb-b5369ae0e4ef",
+            "id": "23",
+            "name": "Яндекс Маркет",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://market.yandex.ru/?from=dist_bookmarks&win=574&clid=2416152-4",
+            "visit_count": 0
+         }, {
+            "date_added": "13397088728786834",
+            "date_last_used": "0",
+            "guid": "1cf158b3-f6d3-496b-9694-3814d5af3f34",
+            "id": "24",
+            "name": "Удаление водяных знаков с изображений с помощью ИИ",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://dewatermark.ai/ru/upload",
+            "visit_count": 1
+         } ],
+         "date_added": "13424019400082361",
+         "date_last_used": "0",
+         "date_modified": "13397088728786834",
+         "guid": "4cf2e351-0e85-532b-bb37-df045d8f8d0f",
+         "id": "3",
+         "name": "Избранное на мобильных устройствах",
+         "source": "unknown",
+         "type": "folder"
+      },
+      "workspaces_v2": {
+         "children": [  ],
+         "date_added": "13424019400082361",
+         "date_last_used": "0",
+         "date_modified": "0",
+         "guid": "75aa6670-344f-549d-b742-660f029506ab",
+         "id": "5",
+         "name": "Рабочие пространства",
+         "source": "unknown",
+         "type": "folder"
+      }
+   },
+   "sync_metadata": "CjEKDgiIgQISCBM7GVWeAQAAEgAqGGc2c0tYYWJjS1pXWUJJTEhIRm9vVGc9PUgDoAYHEq0BCBESqAEKHDl4TkVrWnlEWS9jZXdmR1Znb0wvbWt3UDNhQT0SJGNmMzk1MDI2LWVhMGQtNGQ0Mi1iZWUyLTk1Yzg3YTFjMTRhMhgAIAAoADCDk/a+8jI49q2i18oxQPatotfKMUocWTh5eXFUU2VwcjZqeGE5byt0N0ptSW03OFNNPVofIh3+c0JqME1NdHBxb2RxalZEV2lzRDdhU0FLNTAwPWVG8RwGwj4CYAUSrQEIDhKoAQocV1VqdnV4QlJMdHB4TzFmbWpKQ3BxampYVkhRPRIkMTQ5OTBiNzItMWY4NS00N2Q0LWI4NjMtNmU0YjIzYjIxYTQzGAAgACgAMOv43LqAMjigrqLXyjFAoK6i18oxShx4MzBBeHRnV1NnWlR2dzlkRy9yT3NqM2Y2bHc9Wh8iHe1FUHJ2TmdGRUZ4cStrMWxKTmZoSVk2OHN2T3c9ZQAAAADCPgJgBRKtAQgQEqgBChxFL2dnbkhxYlFzeEpnT3gydlF5T25hMGdFSnM9EiQxZTBhMzc0Yi04NjE2LTRiZGQtOTYzZS0zMjE4NGM0MjVjNzgYACAAKAAw5/jcuoAyOPOsotfKMUDzrKLXyjFKHGloWFltazE2RmJXdFdmbXR4NnR0ZzBDS3IyYz1aHyId/VFKU1p2emEwR3lPL1E1QjFuSVhJSFlQdU1UQT1lAAAAAMI+AmAFEq0BCAwSqAEKHDZKQlZMb2RSd2hrSi9WcVNDbFdsZmtHNzFTYz0SJGJiY2RkYTg5LTBmZjctNDQ1YS05NzBhLWMzOTI1NGVkNzZjMRgAIAAoADCN4qbbzzM4nLPK7KkzQJyzyuypM0ocS2RkalRVQzRiTlVIemVDZ2U3WE1rcEFIWmFRPVofIh2pb3hscnV5dmxxdGE0b1pobHdwbDdHN2xyRzBNPWXhvgziwj4CYAUSrQEICBKoAQocNEsweXcydXV6V09UK1lQUW04aUVjWFJ2TUFnPRIkYmY4NDJmMzgtZDYyNy00N2I2LThlNzctNmM0YzM2YTA0MDBiGAAgACgAMPzj+Z/lMzjFrKLXyjFAxayi18oxShx1MkNIY3R3Wk9nOTNnN3hZSC9rOE5ZVEhqaDQ9Wh8iHYNBdTVXU0E2SG9xVDdiNHJsR2c1dDhidHU2ZHc9ZVBCw9LCPgJgBRKuAQgTEqkBChxKVCtraEsrWk5pYlpLM2F1VHNQRUMrRWpGcTg9EiRhMTBjY2U1NS0yZDg4LTQ1NjQtYmEzZi1hOWYwOGRhMDM2MzEYACAAKAAwkvbkqOUzOMmzyuypM0DJs8rsqTNKHG1RNTRsSWZRVHYrSlhZWXU3bGJXblFRMUYzbz1aICIe/+0vMy84QkNYWXcrV2gzLy93azRSWHlDWHVZbGc9Zatvu/HCPgJgBRKsAQgHEqcBChxyT3Q1UHJXTCtQVS91ZkJ0b0R6bmZHczBoL009EiQ2ZTM2NjliNC04NTdkLTRkMGItYjc5Ni05NTMxNDIyYzVjNWEYACAAKAAwgY+38d8zOK+DwpC6M0Cvg8KQujNKHER6aUFESVkrVW52c0toU3V5Z09GZmN2Qlo2dz1aHiIcUEd4VVUyQzNnY0ZPODk3TmtYcFZ6QzBqMHNZPWWuDKmqwj4CYAUSrQEICRKoAQocKzc3NXppSnhWbXM2Vm4wU2FDaCtqbzJHdjdNPRIkNzM4MDVlYmMtOGEwMi00OTk5LWIxNWEtYTg4NWY0OTliYzEwGAAgACgAMIzS3Y7lMzj92uyqrTNA/drsqq0zShxiWWlzbHFoNERkRHR0SWxWUVp0V01tbVlnQmc9Wh8iHY9OdGh5L2cyenAyM1ZzNUY2clJUNUlXbUNuaWc9Zaf7mBDCPgJgBRKOAQgFEokBChx3UkJyWkwrNlBBOWF2S2dqTlA3SlhETGNmdnM9EiQ3OGQ3NTc2OS1jNWMxLTViM2YtYmY1YS02YjI4MWNhY2YwZmIYACAAKAAw5tPZ6qkzOO7U2eqpM0Du1NnqqTNKHG5teDY1c1FEdnhJOFRnRWV2K0ErbnR0b1NuND1aAGUAAAAAwj4CYAASjgEIARKJAQoceXhKLzZmdmtlY3I3a3A1RVF6QjR0V0xwZGJFPRIkOWI1NDQ5OTQtNDI3OS01YTk0LThiMTctMGViY2NkNTk1YTE1GAAgACgAMIW/sMC8MDicwbDAvDBAnMGwwLwwShxhUkNXTGdoRjliNUlucUtJRHZ1Si9qdlFrRmM9WgBlAAAAAMI+AmAAEq4BCBUSqQEKHFVrMjB6djRlWWoyTzBQQlczcGxVNWY2U1JmVT0SJGVjZjFkZjgxLTlkN2YtNDA2OC1hYmE2LTg0ODRiMzVmOWM0MBgAIAAoADDp39Oj5TM4gOHTo+UzQIDh06PlM0ocUWhXVDNkcTc5K05NWU5idDhpdEt3NHNwOXJZPVogIh7//jUrZ3A2WDlSangwSUFjZDBvQW5TSk8wV21jND1l64hyy8I+AmAFEq4BCBISqQEKHDlscWhvelREdXUwaG5BRzQ5ZklYY29VVjNiYz0SJDVlYTY5ZGQxLTIzYzMtNGRlMy1iNzVlLWI0OWUyMDdjNmJmYhgAIAAoADCCgd26gDI4yq2i18oxQMqtotfKMUocU2FTU2lQbDlFT2tvb2ttM2hST2VhaGo0Vm1JPVogIh7/2mJGYTNaV1M1Zy9pV3MwM1BEM2ZIeGFMaWJLOD1lAAAAAMI+AmAFEq0BCAsSqAEKHGN0eFdrc3N1cVBmVmlrWWtDdW9VS1ZMT25tOD0SJGRkMDBiOGU3LWRlY2YtNDc2NS1iZWJmLWQ1MjdlZWJkZTViNRgAIAAoADCEkOP05DM48q6i18oxQPKuotfKMUocNHI3NUhXQkFDK2hITkkxcnpjTEdIb2g4ZGhNPVofIh2cSVBxRE1FekRvd0dSMHhlQ0ZsRFh5dmtLMzM0PWXu28tXwj4CYAUSrQEIGBKoAQocR0JNQVoxaE9EbXM4QUNwMnIxbjA1b2k5SEFNPRIkMWNmMTU4YjMtZjZkMy00OTZiLTk2OTQtMzgxNGQ1YWYzZjM0GAAgACgAMO/zhoCBMzi/qoKAgTNAv6qCgIEzShw2VDJ4MG5QUGhIaXR1TFJMelBORjRrTHZzRGM9Wh8iHbBGdmkxR2VMazVOVXRMS3hOQWtvMSszbVJXWUk9ZSQfBGjCPgJgBRKtAQgKEqgBChxaN2NjbXRMY0xhNDUvMGFnSmh3dVBVa1BpOWs9EiRjNzVkNjYxYi04ZTcxLTQ1ZWItOWMwMC1jZGIxMjA3ZWU5ZjAYACAAKAAwuNfS28EzOMquotfKMUDKrqLXyjFKHGNTcmp3NG82R1FKb0dzVzlyRjYzTjlEbVhpbz1aHyIdlS9pQmhtdk1RZzk2VzN0WFVwK2JiOVZmWWoyRT1l0BIlG8I+AmAFEqwBCBcSpwEKHFhUTUFpVkVNWitTZk1MMDJDM1crRHphQ2Q3dz0SJGIzMzRkZmVhLTIxYzktNGI1OC05N2ViLWI1MzY5YWUwZTRlZhgAIAAoADDUpqLXyjE4xa+i18oxQMWvotfKMUocR3pRWkZOWm5uZHJMYm5XSFlRa0VUd0l5Znl3PVoeIhxhVGtpSjNnWG42ZVV1SDdJaGpDQlEzNFlZYkU9ZQAAAADCPgJgBRKsAQgWEqcBChxVQWROdjloUDgvSzZIbkZYVHg1ZXBkRXZnb289EiQxNGFlMDYxNS03NDU2LTQ3OGItOTJhOC0yMTNmN2QyY2M1NDgYACAAKAAw06ai18oxOJ2votfKMUCdr6LXyjFKHFBaVlNkQnRlL09rMmk1Y2duTHVPNVNLWm5Lbz1aHiIcOXdaOC9JM0NkOWpSSUkweHk4aVpLeDFNK05rPWUAAAAAwj4CYAUSrQEIDxKoAQocM0NxVlZaK2dObUtoTTFoSzZRTGdBTUZjNEZjPRIkZDFhYTZjZmUtOGMyZS00ZTExLTlkZjEtYzlmNDdjNWU2NTQ3GAAgACgAMO343LqAMjiYrKLXyjFAmKyi18oxShwyanlnVmV2M3ZEbGlONHFYZG5UanBMZytqeW89Wh8iHftjeEgxaHhXcTFBKzhSMEROL29LaVcyWHJ2ODg9ZQAAAADCPgJgBRKtAQgNEqgBChxzenM3NFE3V0hXZzZCY1kzK3RvZ1JlTjRTWTA9EiQzMGZhZDAwMC00MGJmLTQxYzUtYWE1NS1jN2UwM2E4M2IzNzgYACAAKAAwxf6xzM4zONOpotfKMUDTqaLXyjFKHEFHeVc1UjU2U3FJektRdXNWZ0xaL1gwM05aYz1aHyIdtldrZGxKRXA3T3JjQXcyakh6a1JhbmlBZGtuUT1l76G55cI+AmAFEo4BCAISiQEKHFljU1RvbnZFU1B3cUNzNEwyY3JWaHY2OEw5OD0SJDliOGIwZjAzLWJlNDQtNTAwMC1hOTU4LTQzMjhiZjI0MmRmMhgAIAAoADCFv7DAvDA4y8GwwLwwQMvBsMC8MEocb1BWa2h3QlJiVjY1S0NXUjIrSU9OSFdvT3U4PVoAZQAAAADCPgJgABKuAQgUEqkBChxiWWRTVDBnUTFXVHZSdkluamRVdUtQSFROYVE9EiQ4MWEzMjczNS0zOTA4LTQxZjgtYWQ1NS1iNjA2YjY4OTQ0ZGYYACAAKAAwkPKLrMMzOPKyyuypM0DyssrsqTNKHFVlZFZjdEpDeTB0ME9CcHE0aERVcy9ydkxVYz1aICIe//1IMWwxRnFjcXU0WG9xQXVCZlBac0ptVXU4SE09ZWXEAjfCPgJgBRKOAQgDEokBChxuamdEdTg4ZUNydlhwODZwRDdmSEdjcUZwODg9EiRmZTAwNWE4OS03ZjU4LTUyYjAtOTNkMy1iOWFiMmY0OGY5NjQYACAAKAAwhb+wwLwwONTDsMC8MEDUw7DAvDBKHHl6TkIwMWNuNTRBN2NSVTB1VCsvUGdtVHRVbz1aAGUAAAAAwj4CYAAwADgA",
+   "version": 1
+}
