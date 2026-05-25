@@ -1,27 +1,5 @@
-2026/05/23-19:25:24.954 c70 Reusing MANIFEST C:\Users\Admin\AppData\Local\Temp\flutter_tools.7187eb19\flutter_tools_chrome_device.bfded18a\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
-2026/05/23-19:25:24.955 c70 Recovering log #29
-2026/05/23-19:25:24.956 c70 Reusing old log C:\Users\Admin\AppData\Local\Temp\flutter_tools.7187eb19\flutter_tools_chrome_device.bfded18a\Default\EdgeCoupons/coupons_data.db/000029.log 
-2026/05/23-19:25:24.957 c70 Delete type=0 #4
-2026/05/23-19:25:24.957 c70 Delete type=0 #7
-2026/05/23-19:25:24.957 c70 Delete type=2 #8
-2026/05/23-19:25:24.957 c70 Delete type=0 #10
-2026/05/23-19:25:24.957 c70 Delete type=2 #11
-2026/05/23-19:25:24.957 c70 Delete type=0 #13
-2026/05/23-19:25:24.958 c70 Delete type=2 #14
-2026/05/23-19:25:24.958 c70 Delete type=0 #16
-2026/05/23-19:25:24.960 c70 Delete type=2 #17
-2026/05/23-19:25:24.961 c70 Delete type=0 #19
-2026/05/23-19:25:24.962 c70 Delete type=0 #23
-2026/05/23-19:25:24.963 c70 Delete type=0 #26
-2026/05/23-19:25:25.345 481c Level-0 table #33: started
-2026/05/23-19:25:25.351 481c Level-0 table #33: 682628 bytes OK
-2026/05/23-19:25:25.355 481c Delete type=0 #29
-2026/05/23-19:25:25.355 928 Compacting 4@0 + 1@1 files
-2026/05/23-19:25:25.363 928 Generated table #34@0: 4 keys, 682536 bytes
-2026/05/23-19:25:25.363 928 Compacted 4@0 + 1@1 files => 682536 bytes
-2026/05/23-19:25:25.374 928 compacted to: files[ 0 1 1 0 0 0 0 ]
-2026/05/23-19:25:25.375 928 Delete type=2 #21
-2026/05/23-19:25:25.375 928 Delete type=2 #24
-2026/05/23-19:25:25.375 928 Delete type=2 #27
-2026/05/23-19:25:25.375 928 Delete type=2 #30
-2026/05/23-19:25:25.375 928 Delete type=2 #33
+2026/05/25-16:56:56.958 4668 Creating DB C:\Users\Admin\AppData\Local\Temp\flutter_tools.f8eb008c\flutter_tools_chrome_device.bc1e1a02\Default\EdgeCoupons/coupons_data.db since it was missing.
+2026/05/25-16:56:56.969 4668 Reusing MANIFEST C:\Users\Admin\AppData\Local\Temp\flutter_tools.f8eb008c\flutter_tools_chrome_device.bc1e1a02\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/05/25-16:56:57.152 53d0 Level-0 table #5: started
+2026/05/25-16:56:57.158 53d0 Level-0 table #5: 682457 bytes OK
+2026/05/25-16:56:57.163 53d0 Delete type=0 #3

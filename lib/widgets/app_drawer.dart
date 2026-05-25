@@ -1,10 +1,12 @@
 // lib/widgets/app_drawer.dart
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
+import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
 class AppDrawer extends StatelessWidget {
   final String role;
@@ -25,142 +27,211 @@ class AppDrawer extends StatelessWidget {
     context.go('/login');
   }
 
+  String get _roleLabel {
+    switch (role) {
+      case 'customer':
+        return 'Заказчик';
+      case 'executor':
+        return 'Исполнитель';
+      case 'support':
+        return 'Поддержка';
+      default:
+        return 'Пользователь';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final currentRoute = GoRouterState.of(context).uri.toString();
-    final hasAvatar = avatarUrl != null && avatarUrl!.trim().isNotEmpty;
 
     return Drawer(
-      child: Container(
-        color: AppColors.background,
+      width: 304,
+      backgroundColor: AppColors.background,
+      surfaceTintColor: Colors.transparent,
+      child: AppScreenBackground(
         child: SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 28,
-                ),
-                child: Row(
+              _DrawerHeader(
+                displayName: displayName,
+                roleLabel: _roleLabel,
+                avatarUrl: avatarUrl,
+                onProfileTap: () {
+                  Navigator.of(context).pop();
+                  context.go('/account');
+                },
+              ),
+
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Divider(height: 1),
+              ),
+
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                  physics: const BouncingScrollPhysics(),
                   children: [
-                    CircleAvatar(
-                      radius: 32,
-                      backgroundColor: AppColors.fieldFill,
-                      backgroundImage:
-                          hasAvatar ? NetworkImage(avatarUrl!) : null,
-                      child:
-                          !hasAvatar
-                              ? Icon(
-                                Icons.person_rounded,
-                                size: 36,
-                                color: cs.onBackground,
-                              )
-                              : null,
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        displayName,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.headlineSmall?.copyWith(
-                          color: cs.onBackground,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                    if (role == 'customer') ...[
+                      const _DrawerGroupTitle('Заказчик'),
+                      _DrawerItem(
+                        icon: Icons.dashboard_outlined,
+                        label: 'Главная',
+                        route: '/customer',
+                        selected: currentRoute == '/customer',
                       ),
+                      _DrawerItem(
+                        icon: Icons.receipt_long_outlined,
+                        label: 'Мои заказы',
+                        route: '/orders',
+                        selected: currentRoute == '/orders',
+                      ),
+                      _DrawerItem(
+                        icon: Icons.add_circle_outline_rounded,
+                        label: 'Создать заказ',
+                        route: '/customer/create',
+                        selected: currentRoute == '/customer/create',
+                      ),
+                      _DrawerItem(
+                        icon: Icons.mail_outline_rounded,
+                        label: 'Заявки и оплаты',
+                        route: '/customer/applications',
+                        selected: currentRoute == '/customer/applications',
+                      ),
+                    ],
+
+                    if (role == 'executor') ...[
+                      const _DrawerGroupTitle('Исполнитель'),
+                      _DrawerItem(
+                        icon: Icons.work_outline_rounded,
+                        label: 'Доступные заказы',
+                        route: '/executor',
+                        selected: currentRoute == '/executor',
+                      ),
+                      _DrawerItem(
+                        icon: Icons.task_alt_rounded,
+                        label: 'Мои задачи',
+                        route: '/tasks',
+                        selected: currentRoute == '/tasks',
+                      ),
+                    ],
+
+                    if (role == 'support') ...[
+                      const _DrawerGroupTitle('Поддержка'),
+                      _DrawerItem(
+                        icon: Icons.view_list_outlined,
+                        label: 'Все заказы',
+                        route: '/support/orders',
+                        selected: currentRoute == '/support/orders',
+                      ),
+                      _DrawerItem(
+                        icon: Icons.support_agent_rounded,
+                        label: 'Чаты поддержки',
+                        route: '/support',
+                        selected: currentRoute == '/support',
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 8),
+                      _DrawerItem(
+                        icon: Icons.support_agent_rounded,
+                        label: 'Поддержка',
+                        route: '/support',
+                        selected: currentRoute == '/support',
+                      ),
+                    ],
+
+                    const SizedBox(height: 8),
+                    const _DrawerGroupTitle('Аккаунт'),
+                    _DrawerItem(
+                      icon: CupertinoIcons.person_crop_circle,
+                      label: 'Профиль',
+                      route: '/account',
+                      selected: currentRoute == '/account',
                     ),
                   ],
                 ),
               ),
 
-              Divider(height: 1, color: Colors.white.withOpacity(0.3)),
-
-              if (role == 'customer') ...[
-                _DrawerItem(
-                  icon: Icons.dashboard_customize_rounded,
-                  label: 'Dashboard',
-                  route: '/customer',
-                  selected: currentRoute == '/customer',
-                ),
-                _DrawerItem(
-                  icon: Icons.receipt_long_rounded,
-                  label: 'My Orders',
-                  route: '/orders',
-                  selected: currentRoute == '/orders',
-                ),
-                _DrawerItem(
-                  icon: Icons.add_circle_rounded,
-                  label: 'Create Order',
-                  route: '/customer/create',
-                  selected: currentRoute == '/customer/create',
-                ),
-                _DrawerItem(
-                  icon: Icons.mail_outline_rounded,
-                  label: 'Applications',
-                  route: '/customer/applications',
-                  selected: currentRoute == '/customer/applications',
-                ),
-              ],
-
-              if (role == 'executor') ...[
-                _DrawerItem(
-                  icon: Icons.shopping_bag_rounded,
-                  label: 'Available Orders',
-                  route: '/executor',
-                  selected: currentRoute == '/executor',
-                ),
-                _DrawerItem(
-                  icon: Icons.task_rounded,
-                  label: 'My Tasks',
-                  route: '/tasks',
-                  selected: currentRoute == '/tasks',
-                ),
-              ],
-
-              if (role == 'support') ...[
-                _DrawerItem(
-                  icon: Icons.view_list_rounded,
-                  label: 'All Orders',
-                  route: '/support/orders',
-                  selected: currentRoute == '/support/orders',
-                ),
-                _DrawerItem(
-                  icon: Icons.support_agent_rounded,
-                  label: 'Support Chats',
-                  route: '/support',
-                  selected: currentRoute == '/support',
-                ),
-              ] else ...[
-                _DrawerItem(
-                  icon: Icons.support_agent_rounded,
-                  label: 'Support',
-                  route: '/support',
-                  selected: currentRoute == '/support',
-                ),
-              ],
-
-              const Spacer(),
-
-              Divider(height: 1, color: Colors.white.withOpacity(0.3)),
-
-              _DrawerItem(
-                icon: Icons.account_circle_rounded,
-                label: 'Profile',
-                route: '/account',
-                selected: currentRoute == '/account',
-              ),
-              _DrawerItem(
-                icon: Icons.logout_rounded,
-                label: 'Log Out',
-                route: '/login',
-                selected: false,
-                onTap: () => _logout(context),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+                child: _LogoutButton(onTap: () => _logout(context)),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerHeader extends StatelessWidget {
+  final String displayName;
+  final String roleLabel;
+  final String? avatarUrl;
+  final VoidCallback onProfileTap;
+
+  const _DrawerHeader({
+    required this.displayName,
+    required this.roleLabel,
+    required this.avatarUrl,
+    required this.onProfileTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+      child: AppSurfaceCard(
+        onTap: onProfileTap,
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        radius: AppRadii.md,
+        child: Row(
+          children: [
+            AppProfileAvatar(avatarUrl: avatarUrl, size: 48),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName.trim().isEmpty ? 'Пользователь' : displayName,
+                    style: AppTextStyles.cardTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(roleLabel, style: AppTextStyles.caption),
+                ],
+              ),
+            ),
+            const Icon(
+              CupertinoIcons.chevron_right,
+              size: 18,
+              color: AppColors.textMuted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerGroupTitle extends StatelessWidget {
+  final String title;
+
+  const _DrawerGroupTitle(this.title);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 7),
+      child: Text(
+        title,
+        style: AppTextStyles.caption.copyWith(
+          color: AppColors.textMuted,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
         ),
       ),
     );
@@ -185,35 +256,105 @@ class _DrawerItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final foreground = selected ? AppColors.accent : AppColors.textSecondary;
+    final background = selected ? AppColors.accentSoft : Colors.transparent;
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap:
-          onTap ??
-          () {
-            Navigator.of(context).pop();
-            context.go(route);
-          },
-      child: Container(
-        decoration: BoxDecoration(
-          color: selected ? cs.secondary.withOpacity(0.28) : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        minSize: 0,
+        pressedOpacity: 0.68,
+        onPressed:
+            onTap ??
+            () {
+              Navigator.of(context).pop();
+              context.go(route);
+            },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(AppRadii.sm),
+            border: Border.all(
+              color: selected ? AppColors.border : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 21, color: foreground),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: AppTextStyles.small.copyWith(
+                    color: selected ? AppColors.text : AppColors.textSecondary,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+              if (selected)
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: AppColors.accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+            ],
+          ),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      ),
+    );
+  }
+}
+
+class _LogoutButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _LogoutButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      minSize: 0,
+      pressedOpacity: 0.7,
+      onPressed: onTap,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          border: Border.all(color: AppColors.border),
+        ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size: 26,
-              color: selected ? cs.onSecondary : AppColors.text,
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: AppColors.danger.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.logout_rounded,
+                size: 20,
+                color: AppColors.danger,
+              ),
             ),
-            const SizedBox(width: 18),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: selected ? cs.onSecondary : AppColors.text,
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Выйти',
+                style: AppTextStyles.small.copyWith(
+                  color: AppColors.text,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],

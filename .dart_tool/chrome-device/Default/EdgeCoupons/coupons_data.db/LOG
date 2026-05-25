@@ -1,23 +1,6 @@
-2026/05/23-20:32:51.386 3208 Reusing MANIFEST C:\Users\Admin\AppData\Local\Temp\flutter_tools.2505c696\flutter_tools_chrome_device.7360dbe0\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
-2026/05/23-20:32:51.388 3208 Recovering log #32
-2026/05/23-20:32:51.388 3208 Reusing old log C:\Users\Admin\AppData\Local\Temp\flutter_tools.2505c696\flutter_tools_chrome_device.7360dbe0\Default\EdgeCoupons/coupons_data.db/000032.log 
-2026/05/23-20:32:51.389 3208 Delete type=0 #4
-2026/05/23-20:32:51.389 3208 Delete type=0 #7
-2026/05/23-20:32:51.389 3208 Delete type=2 #8
-2026/05/23-20:32:51.389 3208 Delete type=0 #10
-2026/05/23-20:32:51.390 3208 Delete type=2 #11
-2026/05/23-20:32:51.390 3208 Delete type=0 #13
-2026/05/23-20:32:51.390 3208 Delete type=2 #14
-2026/05/23-20:32:51.390 3208 Delete type=0 #16
-2026/05/23-20:32:51.390 3208 Delete type=2 #17
-2026/05/23-20:32:51.391 3208 Delete type=0 #19
-2026/05/23-20:32:51.391 3208 Delete type=2 #21
-2026/05/23-20:32:51.391 3208 Delete type=0 #23
-2026/05/23-20:32:51.391 3208 Delete type=2 #24
-2026/05/23-20:32:51.391 3208 Delete type=0 #26
-2026/05/23-20:32:51.391 3208 Delete type=2 #27
-2026/05/23-20:32:51.391 3208 Delete type=0 #29
-2026/05/23-20:32:51.392 3208 Delete type=2 #30
-2026/05/23-20:32:51.478 3588 Level-0 table #37: started
-2026/05/23-20:32:51.483 3588 Level-0 table #37: 682628 bytes OK
-2026/05/23-20:32:51.486 3588 Delete type=0 #32
+2026/05/25-17:13:53.011 2398 Reusing MANIFEST C:\Users\Admin\AppData\Local\Temp\flutter_tools.d2e5c618\flutter_tools_chrome_device.580f46fd\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/05/25-17:13:53.013 2398 Recovering log #4
+2026/05/25-17:13:53.013 2398 Reusing old log C:\Users\Admin\AppData\Local\Temp\flutter_tools.d2e5c618\flutter_tools_chrome_device.580f46fd\Default\EdgeCoupons/coupons_data.db/000004.log 
+2026/05/25-17:13:53.067 30a4 Level-0 table #8: started
+2026/05/25-17:13:53.072 30a4 Level-0 table #8: 682628 bytes OK
+2026/05/25-17:13:53.079 30a4 Delete type=0 #4

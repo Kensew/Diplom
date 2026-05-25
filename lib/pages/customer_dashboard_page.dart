@@ -1,10 +1,13 @@
 // lib/pages/customer_dashboard_page.dart
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
+import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
 class CustomerDashboardPage extends StatefulWidget {
   const CustomerDashboardPage({Key? key}) : super(key: key);
@@ -14,6 +17,8 @@ class CustomerDashboardPage extends StatefulWidget {
 }
 
 class _CustomerDashboardPageState extends State<CustomerDashboardPage> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
   String? _role;
   String? _name;
   String? _avatarUrl;
@@ -24,6 +29,9 @@ class _CustomerDashboardPageState extends State<CustomerDashboardPage> {
   int _newOrders = 0;
   int _totalOrders = 0;
   int _activeOrders = 0;
+  int _waitingOrders = 0;
+  int _pendingApplications = 0;
+  int _pendingPayments = 0;
   int _daysOnProject = 0;
 
   bool _loading = true;
@@ -54,6 +62,94 @@ class _CustomerDashboardPageState extends State<CustomerDashboardPage> {
     return null;
   }
 
+  String? _firstFileName(dynamic value) {
+    if (value == null) return null;
+
+    if (value is String) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+
+    if (value is List && value.isNotEmpty) {
+      final first = value.first;
+      if (first is String) {
+        final trimmed = first.trim();
+        return trimmed.isEmpty ? null : trimmed;
+      }
+    }
+
+    return null;
+  }
+
+  String? _fileUrl({
+    required String collectionName,
+    required String recordId,
+    required dynamic fileValue,
+  }) {
+    final fileName = _firstFileName(fileValue);
+    if (fileName == null) return null;
+
+    if (fileName.startsWith('http://') || fileName.startsWith('https://')) {
+      return fileName;
+    }
+
+    final encodedName = Uri.encodeComponent(fileName);
+
+    return '${PocketBaseService.baseUrl}/api/files/$collectionName/$recordId/$encodedName';
+  }
+
+  String _roleFallbackByEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+
+    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+      return 'customer';
+    }
+
+    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+      return 'support';
+    }
+
+    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+      return 'executor';
+    }
+
+    return 'customer';
+  }
+
+  String _roleFromUser(Map<String, dynamic> data) {
+    final email = data['email']?.toString() ?? '';
+    final rawRole = data['role']?.toString().trim().toLowerCase();
+
+    if (rawRole == 'customer' ||
+        rawRole == 'support' ||
+        rawRole == 'executor') {
+      return rawRole!;
+    }
+
+    return _roleFallbackByEmail(email);
+  }
+
+  Future<Map<String, dynamic>?> _getRecordData(
+    String collection,
+    String? id,
+  ) async {
+    if (id == null || id.isEmpty) return null;
+
+    try {
+      final record = await PocketBaseService.instance.pb
+          .collection(collection)
+          .getOne(id);
+
+      return {
+        'id': record.id,
+        'created': record.get<String>('created') ?? '',
+        ...record.data,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _loadDashboard() async {
     setState(() {
       _loading = true;
@@ -75,29 +171,36 @@ class _CustomerDashboardPageState extends State<CustomerDashboardPage> {
           user.data['name'] as String? ??
           user.data['email'] as String? ??
           'User';
-      _avatarUrl = user.data['photo'] as String?;
-      _role = user.data['role'] as String? ?? 'customer';
 
-      _createdAt = DateTime.tryParse(user.created)?.toLocal();
+      _avatarUrl = _fileUrl(
+        collectionName: 'users',
+        recordId: user.id,
+        fileValue: user.data['photo'],
+      );
+
+      _role = _roleFromUser(user.data);
+
+      _createdAt =
+          DateTime.tryParse(user.get<String>('created') ?? '')?.toLocal();
 
       _lastLogin =
           DateTime.tryParse(
             user.data['last_login'] as String? ?? '',
           )?.toLocal();
 
-      final orderResult = await pb
+      final ordersResult = await pb
           .collection('orders')
           .getList(page: 1, perPage: 200);
 
       final myOrders =
-          orderResult.items.where((order) {
+          ordersResult.items.where((order) {
             final customerId = _relationId(order.data['customer_id']);
             return customerId == userId;
           }).toList();
 
       myOrders.sort((a, b) {
-        final da = DateTime.tryParse(a.created);
-        final db = DateTime.tryParse(b.created);
+        final da = DateTime.tryParse(a.get<String>('created') ?? '');
+        final db = DateTime.tryParse(b.get<String>('created') ?? '');
 
         if (da == null && db == null) return 0;
         if (da == null) return 1;
@@ -114,16 +217,30 @@ class _CustomerDashboardPageState extends State<CustomerDashboardPage> {
             return executorId != null;
           }).length;
 
+      _waitingOrders =
+          myOrders.where((order) {
+            final executorId = _relationId(order.data['executor_id']);
+            return executorId == null;
+          }).length;
+
       if (_lastLogin != null) {
         _newOrders =
             myOrders.where((order) {
-              final created = DateTime.tryParse(order.created)?.toLocal();
+              final created =
+                  DateTime.tryParse(
+                    order.get<String>('created') ?? '',
+                  )?.toLocal();
+
               if (created == null) return false;
+
               return created.isAfter(_lastLogin!);
             }).length;
       } else {
         _newOrders = 0;
       }
+
+      _pendingApplications = await _countPendingApplications(userId);
+      _pendingPayments = await _countPendingPayments(userId);
 
       _daysOnProject =
           _createdAt == null
@@ -137,7 +254,7 @@ class _CustomerDashboardPageState extends State<CustomerDashboardPage> {
             body: {'last_login': DateTime.now().toIso8601String()},
           );
     } catch (e) {
-      _error = e.toString();
+      _error = 'Ошибка загрузки личного кабинета: $e';
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -145,30 +262,68 @@ class _CustomerDashboardPageState extends State<CustomerDashboardPage> {
     }
   }
 
+  Future<int> _countPendingApplications(String userId) async {
+    final pb = PocketBaseService.instance.pb;
+
+    final appsResult = await pb
+        .collection('applications')
+        .getList(page: 1, perPage: 200);
+
+    var count = 0;
+
+    for (final app in appsResult.items) {
+      final status = app.data['status']?.toString().trim().toLowerCase();
+      if (status != 'pending') continue;
+
+      final orderId = _relationId(app.data['order_id']);
+      final order = await _getRecordData('orders', orderId);
+      final customerId = _relationId(order?['customer_id']);
+
+      if (customerId == userId) {
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+  Future<int> _countPendingPayments(String userId) async {
+    final pb = PocketBaseService.instance.pb;
+
+    final paymentsResult = await pb
+        .collection('payment_requests')
+        .getList(page: 1, perPage: 200);
+
+    var count = 0;
+
+    for (final payment in paymentsResult.items) {
+      final status = payment.data['status']?.toString().trim().toLowerCase();
+      if (status != 'pending') continue;
+
+      final taskId = _relationId(payment.data['task_id']);
+      final task = await _getRecordData('tasks', taskId);
+      final orderId = _relationId(task?['order_id']);
+      final order = await _getRecordData('orders', orderId);
+      final customerId = _relationId(order?['customer_id']);
+
+      if (customerId == userId) {
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+  String get _daysText {
+    if (_daysOnProject <= 0) return 'Первый день на платформе';
+    return 'С вами уже $_daysOnProject дн.';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        backgroundColor: cs.background,
-        body: Center(
-          child: Text(
-            'Ошибка: $_error',
-            style: tt.bodyLarge?.copyWith(color: cs.error),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
-    }
-
     return Scaffold(
-      backgroundColor: cs.background,
+      key: _scaffoldKey,
+      backgroundColor: AppColors.background,
       drawer:
           (_role != null && _name != null)
               ? AppDrawer(
@@ -177,269 +332,244 @@ class _CustomerDashboardPageState extends State<CustomerDashboardPage> {
                 avatarUrl: _avatarUrl,
               )
               : null,
-      appBar: AppBar(
-        backgroundColor: cs.surface,
-        elevation: 0.5,
-        title: Text(
-          'Личный кабинет',
-          style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-        ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: cs.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: cs.outline.withOpacity(0.2)),
-                ),
-                child: Row(
-                  children: [
-                    _avatarUrl != null && _avatarUrl!.trim().isNotEmpty
-                        ? CircleAvatar(
-                          radius: 26,
-                          backgroundImage: NetworkImage(_avatarUrl!),
-                        )
-                        : CircleAvatar(
-                          radius: 26,
-                          backgroundColor: cs.primaryContainer,
-                          child: Icon(
-                            Icons.person,
-                            color: cs.onPrimaryContainer,
+      body: AppScreenBackground(
+        child: SafeArea(
+          child:
+              _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? AppErrorState(message: _error!, onRetry: _loadDashboard)
+                  : Column(
+                    children: [
+                      AppTopBar(
+                        title: 'Личный кабинет',
+                        subtitle: 'Панель заказчика',
+                        onMenu: () {
+                          _scaffoldKey.currentState?.openDrawer();
+                        },
+                        onRefresh: _loadDashboard,
+                      ),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: _loadDashboard,
+                          child: ListView(
+                            physics: const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics(),
+                            ),
+                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                            children: [
+                              _WelcomeCard(
+                                name: _name ?? 'Заказчик',
+                                avatarUrl: _avatarUrl,
+                                daysText: _daysText,
+                              ),
+                              const SizedBox(height: 12),
+                              _StatsCard(
+                                totalOrders: _totalOrders,
+                                activeOrders: _activeOrders,
+                                waitingOrders: _waitingOrders,
+                                newOrders: _newOrders,
+                                pendingApplications: _pendingApplications,
+                                pendingPayments: _pendingPayments,
+                              ),
+                              const SizedBox(height: 12),
+                              _QuickActionsCard(
+                                onCreateOrder: () async {
+                                  await context.push('/customer/create');
+                                  await _loadDashboard();
+                                },
+                                onOrders: () => context.go('/orders'),
+                                onApplications: () {
+                                  context.go('/customer/applications');
+                                },
+                                onSupport: () => context.go('/support'),
+                              ),
+                              const SizedBox(height: 12),
+                              const _InfoCard(),
+                            ],
                           ),
                         ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Добро пожаловать, $_name!',
-                            style: tt.titleMedium?.copyWith(
-                              color: cs.onSurface,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _daysOnProject > 0
-                                ? 'С вами уже $_daysOnProject дней'
-                                : 'Первый день на платформе',
-                            style: tt.bodySmall?.copyWith(
-                              color: cs.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Статистика заказчика',
-                            style: tt.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: cs.onSurface,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Expanded(
-                            child: GridView(
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    mainAxisSpacing: 12,
-                                    crossAxisSpacing: 12,
-                                  ),
-                              children: [
-                                _StatCard(
-                                  icon: Icons.fiber_new,
-                                  label: 'Новые заявки',
-                                  value: _newOrders,
-                                  cs: cs,
-                                  tt: tt,
-                                  accentColor: cs.primary,
-                                ),
-                                _StatCard(
-                                  icon: Icons.list_alt,
-                                  label: 'Всего заявок',
-                                  value: _totalOrders,
-                                  cs: cs,
-                                  tt: tt,
-                                  accentColor: cs.secondary,
-                                ),
-                                _StatCard(
-                                  icon: Icons.work_outline,
-                                  label: 'Активных заказов',
-                                  value: _activeOrders,
-                                  cs: cs,
-                                  tt: tt,
-                                  accentColor: cs.tertiary,
-                                ),
-                                _StatCard(
-                                  icon: Icons.calendar_today,
-                                  label: 'Дней на проекте',
-                                  value: _daysOnProject,
-                                  cs: cs,
-                                  tt: tt,
-                                  accentColor: cs.primaryContainer,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: cs.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: cs.outline.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Быстрые действия',
-                              style: tt.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Создайте новый заказ или посмотрите текущие.',
-                              style: tt.bodyMedium?.copyWith(
-                                color: cs.onSurfaceVariant,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Expanded(child: _PromoCard(cs: cs, tt: tt)),
-                            const SizedBox(height: 16),
-                            ElevatedButton.icon(
-                              icon: const Icon(Icons.add),
-                              label: const Text('Новый заказ'),
-                              onPressed: () => context.push('/customer/create'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: cs.secondary,
-                                foregroundColor: cs.onSecondary,
-                                minimumSize: const Size.fromHeight(44),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            OutlinedButton.icon(
-                              icon: const Icon(Icons.shopping_bag_outlined),
-                              label: const Text('Мои заказы'),
-                              onPressed: () => context.go('/orders'),
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size.fromHeight(44),
-                                side: BorderSide(color: cs.primary, width: 1.6),
-                                foregroundColor: cs.primary,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+                    ],
+                  ),
         ),
       ),
     );
   }
 }
 
-class _StatCard extends StatelessWidget {
+class _WelcomeCard extends StatelessWidget {
+  final String name;
+  final String? avatarUrl;
+  final String daysText;
+
+  const _WelcomeCard({
+    required this.name,
+    required this.avatarUrl,
+    required this.daysText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          AppProfileAvatar(avatarUrl: avatarUrl, size: 52),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Добро пожаловать', style: AppTextStyles.caption),
+                const SizedBox(height: 3),
+                Text(
+                  name,
+                  style: AppTextStyles.cardTitle.copyWith(fontSize: 17),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 3),
+                Text(daysText, style: AppTextStyles.small),
+              ],
+            ),
+          ),
+          const AppStatusPill(
+            text: 'customer',
+            color: AppColors.accent,
+            icon: CupertinoIcons.person_crop_circle,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatsCard extends StatelessWidget {
+  final int totalOrders;
+  final int activeOrders;
+  final int waitingOrders;
+  final int newOrders;
+  final int pendingApplications;
+  final int pendingPayments;
+
+  const _StatsCard({
+    required this.totalOrders,
+    required this.activeOrders,
+    required this.waitingOrders,
+    required this.newOrders,
+    required this.pendingApplications,
+    required this.pendingPayments,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Статистика'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.receipt_long_rounded,
+                  label: 'Всего',
+                  value: totalOrders.toString(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.work_outline_rounded,
+                  label: 'Активные',
+                  value: activeOrders.toString(),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.schedule_rounded,
+                  label: 'Ожидают',
+                  value: waitingOrders.toString(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.fiber_new_rounded,
+                  label: 'Новые',
+                  value: newOrders.toString(),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.assignment_ind_outlined,
+                  label: 'Заявки',
+                  value: pendingApplications.toString(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.payments_rounded,
+                  label: 'Оплаты',
+                  value: pendingPayments.toString(),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
   final IconData icon;
   final String label;
-  final int value;
-  final ColorScheme cs;
-  final TextTheme tt;
-  final Color accentColor;
+  final String value;
 
-  const _StatCard({
+  const _StatTile({
     required this.icon,
     required this.label,
     required this.value,
-    required this.cs,
-    required this.tt,
-    required this.accentColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 80),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            accentColor.withOpacity(0.16),
-            cs.primaryContainer.withOpacity(0.1),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cs.outline.withOpacity(0.18)),
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: cs.surface,
-            ),
-            child: Icon(icon, size: 20, color: cs.primary),
-          ),
+          Icon(icon, size: 19, color: AppColors.accent),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '$value',
-                  style: tt.titleLarge?.copyWith(
-                    color: cs.onPrimaryContainer,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
+                Text(value, style: AppTextStyles.cardTitle),
                 Text(
                   label,
-                  maxLines: 2,
-                  style: tt.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.8),
-                  ),
+                  style: AppTextStyles.caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -450,41 +580,87 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-class _PromoCard extends StatelessWidget {
-  final ColorScheme cs;
-  final TextTheme tt;
+class _QuickActionsCard extends StatelessWidget {
+  final VoidCallback onCreateOrder;
+  final VoidCallback onOrders;
+  final VoidCallback onApplications;
+  final VoidCallback onSupport;
 
-  const _PromoCard({required this.cs, required this.tt});
+  const _QuickActionsCard({
+    required this.onCreateOrder,
+    required this.onOrders,
+    required this.onApplications,
+    required this.onSupport,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cs.surfaceVariant.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: cs.outline.withOpacity(0.25)),
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppSectionHeader(title: 'Быстрые действия'),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: onCreateOrder,
+            icon: const Icon(Icons.add_circle_outline_rounded),
+            label: const Text('Создать заказ'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: onOrders,
+            icon: const Icon(Icons.receipt_long_rounded),
+            label: const Text('Мои заказы'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: onApplications,
+            icon: const Icon(Icons.assignment_ind_outlined),
+            label: const Text('Заявки и оплаты'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: onSupport,
+            icon: const Icon(Icons.support_agent_rounded),
+            label: const Text('Поддержка'),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 64,
-            height: 64,
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: cs.surface,
-              borderRadius: BorderRadius.circular(16),
+              color: AppColors.accentSoft,
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+              border: Border.all(color: AppColors.border),
             ),
-            child: Icon(Icons.campaign_rounded, size: 36, color: cs.primary),
+            child: const Icon(
+              CupertinoIcons.info,
+              color: AppColors.accent,
+              size: 20,
+            ),
           ),
-          const SizedBox(width: 18),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Место для рекламы',
-              style: tt.titleMedium?.copyWith(
-                color: cs.onSurface,
-                fontWeight: FontWeight.w600,
-                fontSize: 20,
-              ),
+              'Создайте заказ, дождитесь заявок исполнителей, примите подходящую заявку и продолжайте работу в чате задачи.',
+              style: AppTextStyles.body,
             ),
           ),
         ],

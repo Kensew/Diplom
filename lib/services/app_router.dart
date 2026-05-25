@@ -12,6 +12,7 @@ import '../pages/edit_profile_page.dart';
 import '../pages/executor_orders_page.dart';
 import '../pages/log_in_page.dart';
 import '../pages/log_up_page.dart';
+import '../pages/mock_payment_page.dart';
 import '../pages/order_apply_page.dart';
 import '../pages/order_more_page.dart';
 import '../pages/support_create_page.dart';
@@ -106,6 +107,14 @@ class AppRouter {
       GoRoute(
         path: '/executor',
         builder: (context, state) => const ExecutorOrdersPage(),
+      ),
+
+      GoRoute(
+        path: '/payments/mock/:paymentRequestId',
+        builder: (context, state) {
+          final paymentRequestId = state.pathParameters['paymentRequestId']!;
+          return MockPaymentPage(paymentRequestId: paymentRequestId);
+        },
       ),
 
       GoRoute(

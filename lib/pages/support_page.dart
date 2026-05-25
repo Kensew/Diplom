@@ -1,11 +1,14 @@
 // lib/pages/support_page.dart
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
+import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
 class SupportPage extends StatefulWidget {
   const SupportPage({Key? key}) : super(key: key);
@@ -15,6 +18,7 @@ class SupportPage extends StatefulWidget {
 }
 
 class _SupportPageState extends State<SupportPage> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _searchController = TextEditingController();
   final _dateFmt = DateFormat('dd.MM.yyyy');
 
@@ -35,27 +39,10 @@ class _SupportPageState extends State<SupportPage> {
     _loadAll();
   }
 
-  String _roleFallbackByEmail(String email) {
-    final normalized = email.trim().toLowerCase();
-
-    if (normalized == 'customer@test.ru') return 'customer';
-    if (normalized == 'support@test.ru') return 'support';
-    if (normalized == 'executor@test.ru') return 'executor';
-
-    return 'executor';
-  }
-
-  String _roleFromUser(Map<String, dynamic> data) {
-    final email = data['email']?.toString() ?? '';
-    final rawRole = data['role']?.toString().trim().toLowerCase();
-
-    if (rawRole == 'customer' ||
-        rawRole == 'support' ||
-        rawRole == 'executor') {
-      return rawRole!;
-    }
-
-    return _roleFallbackByEmail(email);
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   String? _relationId(dynamic value) {
@@ -75,6 +62,94 @@ class _SupportPageState extends State<SupportPage> {
     }
 
     return null;
+  }
+
+  String? _firstFileName(dynamic value) {
+    if (value == null) return null;
+
+    if (value is String) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+
+    if (value is List && value.isNotEmpty) {
+      final first = value.first;
+      if (first is String) {
+        final trimmed = first.trim();
+        return trimmed.isEmpty ? null : trimmed;
+      }
+    }
+
+    return null;
+  }
+
+  String? _fileUrl({
+    required String collectionName,
+    required String recordId,
+    required dynamic fileValue,
+  }) {
+    final fileName = _firstFileName(fileValue);
+    if (fileName == null) return null;
+
+    if (fileName.startsWith('http://') || fileName.startsWith('https://')) {
+      return fileName;
+    }
+
+    final encodedName = Uri.encodeComponent(fileName);
+
+    return '${PocketBaseService.baseUrl}/api/files/$collectionName/$recordId/$encodedName';
+  }
+
+  String _roleFallbackByEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+
+    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+      return 'customer';
+    }
+
+    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+      return 'support';
+    }
+
+    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+      return 'executor';
+    }
+
+    return 'executor';
+  }
+
+  String _roleFromUser(Map<String, dynamic> data) {
+    final email = data['email']?.toString() ?? '';
+    final rawRole = data['role']?.toString().trim().toLowerCase();
+
+    if (rawRole == 'customer' ||
+        rawRole == 'support' ||
+        rawRole == 'executor') {
+      return rawRole!;
+    }
+
+    return _roleFallbackByEmail(email);
+  }
+
+  Future<Map<String, dynamic>?> _getRecordData(
+    String collection,
+    String? id,
+  ) async {
+    if (id == null || id.isEmpty) return null;
+
+    try {
+      final record = await PocketBaseService.instance.pb
+          .collection(collection)
+          .getOne(id);
+
+      return {
+        'id': record.id,
+        'created': record.get<String>('created'),
+        ...record.data,
+      };
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _loadAll() async {
@@ -99,7 +174,12 @@ class _SupportPageState extends State<SupportPage> {
           user.data['name'] as String? ??
           user.data['email'] as String? ??
           'User';
-      _photo = user.data['photo'] as String?;
+
+      _photo = _fileUrl(
+        collectionName: 'users',
+        recordId: user.id,
+        fileValue: user.data['photo'],
+      );
 
       final requestResult = await pb
           .collection('support_requests')
@@ -114,11 +194,27 @@ class _SupportPageState extends State<SupportPage> {
           continue;
         }
 
+        final requestUser = await _getRecordData('users', requestUserId);
+
+        final requestUserPhoto =
+            requestUserId == null
+                ? null
+                : _fileUrl(
+                  collectionName: 'users',
+                  recordId: requestUserId,
+                  fileValue: requestUser?['photo'],
+                );
+
         result.add({
           'id': record.id,
           'reason': record.data['reason'] as String? ?? '',
-          'created': record.created,
+          'created': record.get<String>('created'),
           'user_id': requestUserId,
+          'user_name':
+              requestUser?['name'] as String? ??
+              requestUser?['email'] as String? ??
+              'Пользователь',
+          'user_photo': requestUserPhoto,
         });
       }
 
@@ -144,12 +240,15 @@ class _SupportPageState extends State<SupportPage> {
   }
 
   List<Map<String, dynamic>> get _filtered {
-    final q = _searchController.text.trim().toLowerCase();
+    final query = _searchController.text.trim().toLowerCase();
 
     var list =
         _requests.where((request) {
           final reason = (request['reason'] as String? ?? '').toLowerCase();
-          return reason.contains(q);
+          final userName =
+              (request['user_name'] as String? ?? '').toLowerCase();
+
+          return reason.contains(query) || userName.contains(query);
         }).toList();
 
     if (_sortOrder == 'Oldest') {
@@ -162,367 +261,492 @@ class _SupportPageState extends State<SupportPage> {
   String _formatDate(String? raw) {
     final dt = DateTime.tryParse(raw ?? '');
     if (dt == null) return '—';
+
     return _dateFmt.format(dt.toLocal());
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+  String _sortLabel(String value) {
+    switch (value) {
+      case 'Oldest':
+        return 'Старые';
+      case 'Newest':
+      default:
+        return 'Новые';
+    }
+  }
+
+  Future<void> _selectSort() async {
+    await showAppBottomSheet(
+      context: context,
+      title: 'Сортировка',
+      child: ListView(
+        shrinkWrap: true,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          ...const ['Newest', 'Oldest'].map(
+            (value) => AppBottomSheetOption(
+              title: _sortLabel(value),
+              selected: _sortOrder == value,
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => _sortOrder = value);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openCreateRequest() async {
+    final created = await context.push<bool>('/support/new');
+
+    if (created == true) {
+      await _loadAll();
+    }
+  }
+
+  void _openRequest(String id) {
+    context.push('/support/$id');
+  }
+
+  int get _myRequestsCount {
+    final userId = PocketBaseService.instance.currentUserId;
+
+    return _requests.where((request) {
+      return request['user_id'] == userId;
+    }).length;
+  }
+
+  int get _otherRequestsCount {
+    final userId = PocketBaseService.instance.currentUserId;
+
+    return _requests.where((request) {
+      return request['user_id'] != userId;
+    }).length;
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final border = cs.onSurface.withOpacity(0.16);
     final filtered = _filtered;
+    final hasSearch = _searchController.text.trim().isNotEmpty;
+    final isSupport = _role == 'support';
 
     return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: AppColors.background,
       drawer:
           (_role != null && _name != null)
               ? AppDrawer(role: _role!, displayName: _name!, avatarUrl: _photo)
               : null,
-      appBar: AppBar(
-        backgroundColor: cs.surface,
-        elevation: 0,
-        title: Row(
-          children: [
-            Icon(Icons.support_agent_outlined, color: cs.onSurface),
-            const SizedBox(width: 8),
-            Text(
-              'Support',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: cs.onSurface,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-      backgroundColor: cs.surface,
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
+        onPressed: _openCreateRequest,
         icon: const Icon(Icons.add),
         label: const Text('Новое обращение'),
-        onPressed: () async {
-          final created = await context.push<bool>('/support/new');
-
-          if (created == true) {
-            await _loadAll();
-          }
-        },
       ),
-      body: SafeArea(
-        child:
-            _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: cs.error,
+      body: AppScreenBackground(
+        child: SafeArea(
+          child:
+              _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? AppErrorState(message: _error!, onRetry: _loadAll)
+                  : Column(
+                    children: [
+                      AppTopBar(
+                        title: 'Поддержка',
+                        subtitle:
+                            isSupport
+                                ? 'Все обращения пользователей'
+                                : 'Ваши обращения в поддержку',
+                        onMenu: () {
+                          _scaffoldKey.currentState?.openDrawer();
+                        },
+                        onRefresh: _loadAll,
                       ),
-                    ),
-                  ),
-                )
-                : Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 900),
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: cs.secondaryContainer.withOpacity(0.8),
-                              borderRadius: BorderRadius.circular(18),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: _loadAll,
+                          child: CustomScrollView(
+                            physics: const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics(),
                             ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: cs.primary.withOpacity(0.15),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.chat_bubble_outline,
-                                    color: cs.onSecondaryContainer,
+                            slivers: [
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  4,
+                                  12,
+                                  0,
+                                ),
+                                sliver: SliverToBoxAdapter(
+                                  child: _SupportOverviewCard(
+                                    name: _name ?? 'Пользователь',
+                                    avatarUrl: _photo,
+                                    isSupport: isSupport,
+                                    totalCount: _requests.length,
+                                    myCount: _myRequestsCount,
+                                    otherCount: _otherRequestsCount,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Центр поддержки',
-                                        style: theme.textTheme.titleMedium
-                                            ?.copyWith(
-                                              color: cs.onSecondaryContainer,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _role == 'support'
-                                            ? 'Просматривайте все обращения пользователей.'
-                                            : 'Следите за своими обращениями и продолжайте диалог с поддержкой.',
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color: cs.onSecondaryContainer
-                                                  .withOpacity(0.8),
-                                            ),
-                                      ),
-                                    ],
+                              ),
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  12,
+                                  12,
+                                  0,
+                                ),
+                                sliver: SliverToBoxAdapter(
+                                  child: AppSearchField(
+                                    controller: _searchController,
+                                    hint: 'Поиск по обращениям',
+                                    onChanged: (_) => setState(() {}),
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _searchController,
-                                  onChanged: (_) => setState(() {}),
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.onSurface,
-                                  ),
-                                  decoration: InputDecoration(
-                                    hintText: 'Поиск обращений…',
-                                    hintStyle: TextStyle(
-                                      color: cs.onSurface.withOpacity(0.6),
-                                    ),
-                                    filled: true,
-                                    fillColor: cs.surfaceVariant,
-                                    prefixIcon: Icon(
-                                      Icons.search,
-                                      color: cs.onSurface,
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 12,
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(20),
-                                      borderSide: BorderSide.none,
+                              ),
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  10,
+                                  12,
+                                  0,
+                                ),
+                                sliver: SliverToBoxAdapter(
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    physics: const BouncingScrollPhysics(),
+                                    child: Row(
+                                      children: [
+                                        AppFilterChip(
+                                          icon: CupertinoIcons.sort_down,
+                                          label: _sortLabel(_sortOrder),
+                                          active: true,
+                                          onTap: _selectSort,
+                                        ),
+                                        if (hasSearch) ...[
+                                          const SizedBox(width: 8),
+                                          AppFilterChip(
+                                            icon: CupertinoIcons.clear,
+                                            label: 'Сбросить',
+                                            danger: true,
+                                            onTap: () {
+                                              setState(() {
+                                                _searchController.clear();
+                                              });
+                                            },
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  16,
+                                  12,
+                                  8,
                                 ),
-                                decoration: BoxDecoration(
-                                  color: cs.surfaceVariant,
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: border),
+                                sliver: SliverToBoxAdapter(
+                                  child: AppSectionHeader(
+                                    title:
+                                        isSupport
+                                            ? 'Все обращения'
+                                            : 'Мои обращения',
+                                    count: filtered.length,
+                                  ),
                                 ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: _sortOrder,
-                                    items: const [
-                                      DropdownMenuItem(
-                                        value: 'Newest',
-                                        child: Text('Newest'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 'Oldest',
-                                        child: Text('Oldest'),
-                                      ),
-                                    ],
-                                    onChanged: (v) {
-                                      if (v != null) {
-                                        setState(() => _sortOrder = v);
+                              ),
+                              if (filtered.isEmpty)
+                                SliverFillRemaining(
+                                  hasScrollBody: false,
+                                  child: AppEmptyState(
+                                    icon:
+                                        hasSearch
+                                            ? CupertinoIcons.search
+                                            : CupertinoIcons.tray,
+                                    title:
+                                        hasSearch
+                                            ? 'Ничего не найдено'
+                                            : 'Обращений пока нет',
+                                    subtitle:
+                                        hasSearch
+                                            ? 'Измени поисковый запрос.'
+                                            : 'Создайте обращение, чтобы связаться с поддержкой.',
+                                    action: ElevatedButton.icon(
+                                      onPressed: _openCreateRequest,
+                                      icon: const Icon(Icons.add),
+                                      label: const Text('Новое обращение'),
+                                    ),
+                                  ),
+                                )
+                              else
+                                SliverPadding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    0,
+                                    12,
+                                    96,
+                                  ),
+                                  sliver: SliverList(
+                                    delegate: SliverChildBuilderDelegate((
+                                      context,
+                                      index,
+                                    ) {
+                                      if (index.isOdd) {
+                                        return const SizedBox(height: 8);
                                       }
-                                    },
-                                    iconEnabledColor: cs.onSurface,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: cs.onSurface,
-                                    ),
-                                    dropdownColor: cs.surfaceVariant,
+
+                                      final requestIndex = index ~/ 2;
+                                      final request = filtered[requestIndex];
+                                      final id = request['id'] as String;
+
+                                      return _SupportRequestCard(
+                                        reason:
+                                            request['reason'] as String? ?? '',
+                                        createdAt: _formatDate(
+                                          request['created'] as String?,
+                                        ),
+                                        userName:
+                                            request['user_name'] as String? ??
+                                            'Пользователь',
+                                        userPhoto:
+                                            request['user_photo'] as String?,
+                                        showUser: isSupport,
+                                        onTap: () => _openRequest(id),
+                                      );
+                                    }, childCount: filtered.length * 2 - 1),
                                   ),
                                 ),
-                              ),
                             ],
                           ),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              _role == 'support'
-                                  ? 'Все обращения'
-                                  : 'Мои обращения',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: cs.onSurface,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Expanded(
-                          child:
-                              filtered.isEmpty
-                                  ? Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.inbox_outlined,
-                                          size: 48,
-                                          color: cs.onSurface.withOpacity(0.4),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Пока нет обращений',
-                                          style: theme.textTheme.titleMedium
-                                              ?.copyWith(color: cs.onSurface),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Нажмите «Новое обращение», чтобы связаться с поддержкой.',
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                color: cs.onSurface.withOpacity(
-                                                  0.7,
-                                                ),
-                                              ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                  : ListView.builder(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      0,
-                                      16,
-                                      88,
-                                    ),
-                                    itemCount: filtered.length,
-                                    itemBuilder: (ctx, i) {
-                                      final request = filtered[i];
-                                      final id = request['id'] as String;
-                                      final reason =
-                                          request['reason'] as String? ?? '';
-                                      final date = _formatDate(
-                                        request['created'] as String?,
-                                      );
+                      ),
+                    ],
+                  ),
+        ),
+      ),
+    );
+  }
+}
 
-                                      return Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 6,
-                                        ),
-                                        child: InkWell(
-                                          borderRadius: BorderRadius.circular(
-                                            18,
-                                          ),
-                                          onTap:
-                                              () =>
-                                                  context.push('/support/$id'),
-                                          child: Card(
-                                            color: cs.secondaryContainer,
-                                            elevation: 2,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(18),
-                                              side: BorderSide(color: border),
-                                            ),
-                                            margin: EdgeInsets.zero,
-                                            child: Padding(
-                                              padding: const EdgeInsets.all(16),
-                                              child: Row(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Container(
-                                                    width: 40,
-                                                    height: 40,
-                                                    decoration: BoxDecoration(
-                                                      color: cs.primary
-                                                          .withOpacity(0.12),
-                                                      shape: BoxShape.circle,
-                                                    ),
-                                                    child: Icon(
-                                                      Icons
-                                                          .support_agent_rounded,
-                                                      color: cs.primary,
-                                                      size: 22,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                        Text(
-                                                          reason,
-                                                          style: theme
-                                                              .textTheme
-                                                              .titleMedium
-                                                              ?.copyWith(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w600,
-                                                              ),
-                                                        ),
-                                                        const SizedBox(
-                                                          height: 4,
-                                                        ),
-                                                        Text(
-                                                          'Создано: $date',
-                                                          style: theme
-                                                              .textTheme
-                                                              .bodySmall
-                                                              ?.copyWith(
-                                                                color: cs
-                                                                    .onSurface
-                                                                    .withOpacity(
-                                                                      0.75,
-                                                                    ),
-                                                              ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Icon(
-                                                    Icons.chevron_right_rounded,
-                                                    color: cs.onSurface
-                                                        .withOpacity(0.5),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                        ),
-                      ],
+class _SupportOverviewCard extends StatelessWidget {
+  final String name;
+  final String? avatarUrl;
+  final bool isSupport;
+  final int totalCount;
+  final int myCount;
+  final int otherCount;
+
+  const _SupportOverviewCard({
+    required this.name,
+    required this.avatarUrl,
+    required this.isSupport,
+    required this.totalCount,
+    required this.myCount,
+    required this.otherCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              AppProfileAvatar(avatarUrl: avatarUrl),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: AppTextStyles.cardTitle,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 3),
+                    Text(
+                      isSupport ? 'Сотрудник поддержки' : 'Пользователь',
+                      style: AppTextStyles.caption,
+                    ),
+                  ],
+                ),
+              ),
+              const AppStatusPill(
+                text: 'support',
+                color: AppColors.accent,
+                icon: Icons.support_agent_rounded,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            isSupport
+                ? 'Просматривайте обращения пользователей и продолжайте диалог в чате поддержки.'
+                : 'Создавайте обращения и отслеживайте ответы поддержки.',
+            style: AppTextStyles.body,
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.inbox_rounded,
+                  label: 'Всего',
+                  value: totalCount.toString(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatTile(
+                  icon: CupertinoIcons.person_crop_circle,
+                  label: 'Мои',
+                  value: myCount.toString(),
+                ),
+              ),
+              if (isSupport) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StatTile(
+                    icon: Icons.group_outlined,
+                    label: 'Другие',
+                    value: otherCount.toString(),
                   ),
                 ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _StatTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: AppColors.accent),
+          const SizedBox(height: 8),
+          Text(value, style: AppTextStyles.cardTitle),
+          Text(
+            label,
+            style: AppTextStyles.caption,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SupportRequestCard extends StatelessWidget {
+  final String reason;
+  final String createdAt;
+  final String userName;
+  final String? userPhoto;
+  final bool showUser;
+  final VoidCallback onTap;
+
+  const _SupportRequestCard({
+    required this.reason,
+    required this.createdAt,
+    required this.userName,
+    required this.userPhoto,
+    required this.showUser,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (showUser) ...[
+            Row(
+              children: [
+                AppProfileAvatar(avatarUrl: userPhoto, size: 38),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    userName,
+                    style: AppTextStyles.small.copyWith(
+                      color: AppColors.text,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(createdAt, style: AppTextStyles.caption),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
+          Text(
+            reason.trim().isEmpty ? 'Без темы' : reason,
+            style: AppTextStyles.cardTitle.copyWith(fontSize: 16),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 12),
+          Container(height: 1, color: AppColors.divider),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: AppMetaItem(
+                  icon: CupertinoIcons.calendar_today,
+                  label: 'Создано',
+                  value: createdAt,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.accentSoft,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                  border: Border.all(color: AppColors.border),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  CupertinoIcons.arrow_right,
+                  size: 17,
+                  color: AppColors.accent,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

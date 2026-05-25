@@ -1,11 +1,15 @@
 // lib/pages/task_details_page.dart
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/pocketbase_file_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
-import '../widgets/app_drawer.dart';
+import 'package:flutter_freelance_platform/services/theme.dart';
+import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
+import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
 class TaskDetailsPage extends StatefulWidget {
   final String taskId;
@@ -18,6 +22,7 @@ class TaskDetailsPage extends StatefulWidget {
 
 class _TaskDetailsPageState extends State<TaskDetailsPage> {
   bool _loading = true;
+  bool _requestingPayment = false;
   String? _error;
 
   String? _title;
@@ -26,7 +31,14 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   String? _paymentStatus;
   String? _estimatedTime;
   String? _timeSpent;
-  String? _paymentAmount;
+  double _paymentAmount = 0;
+
+  String? _orderId;
+  String? _customerId;
+  String? _executorId;
+
+  String? _paymentRequestId;
+  String? _paymentRequestStatus;
 
   String? _role;
   String? _name;
@@ -38,14 +50,99 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     _loadAll();
   }
 
-  Map<String, dynamic>? _expandData(dynamic record, String fieldName) {
-    final items = record.expand[fieldName];
+  String? _relationId(dynamic value) {
+    if (value == null) return null;
 
-    if (items is List && items.isNotEmpty) {
-      return items.first.data as Map<String, dynamic>;
+    if (value is String) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+
+    if (value is List && value.isNotEmpty) {
+      final first = value.first;
+      if (first is String) {
+        final trimmed = first.trim();
+        return trimmed.isEmpty ? null : trimmed;
+      }
     }
 
     return null;
+  }
+
+  String _roleFallbackByEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+
+    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+      return 'customer';
+    }
+
+    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+      return 'support';
+    }
+
+    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+      return 'executor';
+    }
+
+    return 'executor';
+  }
+
+  String _roleFromUser(Map<String, dynamic> data) {
+    final email = data['email']?.toString() ?? '';
+    final rawRole = data['role']?.toString().trim().toLowerCase();
+
+    if (rawRole == 'customer' ||
+        rawRole == 'support' ||
+        rawRole == 'executor') {
+      return rawRole!;
+    }
+
+    return _roleFallbackByEmail(email);
+  }
+
+  Future<Map<String, dynamic>?> _getRecordData(
+    String collection,
+    String? id,
+  ) async {
+    if (id == null || id.isEmpty) return null;
+
+    try {
+      final record = await PocketBaseService.instance.pb
+          .collection(collection)
+          .getOne(id);
+
+      return {
+        'id': record.id,
+        'created': record.get<String>('created') ?? '',
+        ...record.data,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _firstIdFromCollection(
+    String collection,
+    List<String> preferredNames,
+  ) async {
+    final result = await PocketBaseService.instance.pb
+        .collection(collection)
+        .getList(page: 1, perPage: 200);
+
+    if (result.items.isEmpty) return null;
+
+    for (final name in preferredNames) {
+      for (final item in result.items) {
+        final itemName =
+            (item.data['name'] as String? ?? '').trim().toLowerCase();
+
+        if (itemName == name.trim().toLowerCase()) {
+          return item.id;
+        }
+      }
+    }
+
+    return result.items.first.id;
   }
 
   Future<void> _loadAll() async {
@@ -57,8 +154,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     try {
       await _loadDrawerData();
       await _loadDetail();
+      await _loadPaymentRequest();
     } catch (e) {
-      _error = 'Ошибка: $e';
+      _error = 'Ошибка загрузки задачи: $e';
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -74,27 +172,41 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
     final user = await service.pb.collection('users').getOne(userId);
 
-    _role = user.data['role'] as String? ?? 'executor';
+    _role = _roleFromUser(user.data);
     _name =
         user.data['name'] as String? ?? user.data['email'] as String? ?? 'User';
-    _photo = user.data['photo'] as String?;
+
+    _photo = PocketBaseFileService.fileUrl(
+      collectionName: 'users',
+      recordId: user.id,
+      fileValue: user.data['photo'],
+    );
   }
 
   Future<void> _loadDetail() async {
     final pb = PocketBaseService.instance.pb;
 
-    final task = await pb
-        .collection('tasks')
-        .getOne(widget.taskId, expand: 'order_id,status_id,payment_status_id');
+    final task = await pb.collection('tasks').getOne(widget.taskId);
 
-    final order = _expandData(task, 'order_id');
-    final status = _expandData(task, 'status_id');
-    final paymentStatus = _expandData(task, 'payment_status_id');
+    _orderId = _relationId(task.data['order_id']);
+    _executorId = _relationId(task.data['executor_id']);
 
+    final statusId = _relationId(task.data['status_id']);
+    final paymentStatusId = _relationId(task.data['payment_status_id']);
+
+    final order = await _getRecordData('orders', _orderId);
+    final status = await _getRecordData('task_statuses', statusId);
+    final paymentStatus = await _getRecordData(
+      'payment_statuses',
+      paymentStatusId,
+    );
+
+    _customerId = _relationId(order?['customer_id']);
     _title = order?['task_description'] as String? ?? '—';
 
     final rawDeadline = order?['deadline'] as String?;
     final parsedDeadline = DateTime.tryParse(rawDeadline ?? '');
+
     _deadline =
         parsedDeadline == null
             ? '—'
@@ -103,12 +215,52 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     _status = status?['name'] as String? ?? '—';
     _paymentStatus = paymentStatus?['name'] as String? ?? '—';
 
-    _estimatedTime = '${task.data['estimated_time']?.toString() ?? '—'}h';
-    _timeSpent = '${task.data['time_spent']?.toString() ?? '—'}h';
-    _paymentAmount = '\$${task.data['payment_amount']?.toString() ?? '—'}';
+    _estimatedTime = '${task.data['estimated_time']?.toString() ?? '0'}ч';
+    _timeSpent = '${task.data['time_spent']?.toString() ?? '0'}ч';
+    _paymentAmount = ((task.data['payment_amount'] as num?) ?? 0).toDouble();
+  }
+
+  Future<void> _loadPaymentRequest() async {
+    final pb = PocketBaseService.instance.pb;
+
+    _paymentRequestId = null;
+    _paymentRequestStatus = null;
+
+    final result = await pb
+        .collection('payment_requests')
+        .getList(page: 1, perPage: 200);
+
+    final requests =
+        result.items.where((request) {
+          final taskId = _relationId(request.data['task_id']);
+          return taskId == widget.taskId;
+        }).toList();
+
+    if (requests.isEmpty) return;
+
+    requests.sort((a, b) {
+      final da = DateTime.tryParse(a.get<String>('created') ?? '');
+      final db = DateTime.tryParse(b.get<String>('created') ?? '');
+
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+
+      return db.compareTo(da);
+    });
+
+    final request = requests.first;
+
+    _paymentRequestId = request.id;
+    _paymentRequestStatus =
+        request.data['status']?.toString().trim().toLowerCase() ?? 'pending';
   }
 
   Future<void> _requestPayment() async {
+    if (_requestingPayment) return;
+
+    setState(() => _requestingPayment = true);
+
     try {
       final service = PocketBaseService.instance;
       final userId = service.currentUserId;
@@ -117,137 +269,463 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         throw 'Неавторизован';
       }
 
-      await service.pb
+      if (_executorId != userId) {
+        throw 'Запросить оплату может только исполнитель задачи';
+      }
+
+      await _loadPaymentRequest();
+
+      if (_paymentRequestStatus == 'pending') {
+        throw 'Запрос оплаты уже ожидает решения заказчика';
+      }
+
+      if (_paymentRequestStatus == 'approved') {
+        throw 'Оплата уже подтверждена';
+      }
+
+      final pendingStatusId = await _firstIdFromCollection('payment_statuses', [
+        'pending',
+      ]);
+
+      final request = await service.pb
           .collection('payment_requests')
           .create(
             body: {
               'task_id': widget.taskId,
               'requested_by': userId,
               'status': 'pending',
+              'payment_amount': _paymentAmount,
             },
           );
 
+      await service.pb
+          .collection('tasks')
+          .update(
+            widget.taskId,
+            body: {
+              if (pendingStatusId != null) 'payment_status_id': pendingStatusId,
+            },
+          );
+
+      _paymentRequestId = request.id;
+      _paymentRequestStatus = 'pending';
+
+      await _loadDetail();
+
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Payment request sent')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Запрос оплаты отправлен заказчику')),
+      );
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error sending request: $e')));
+      ).showSnackBar(SnackBar(content: Text('Ошибка запроса оплаты: $e')));
+    } finally {
+      if (mounted) {
+        setState(() => _requestingPayment = false);
+      }
+    }
+  }
+
+  Future<void> _openPaymentPage() async {
+    final id = _paymentRequestId;
+    if (id == null) return;
+
+    final result = await context.push('/payments/mock/$id');
+
+    if (result == true) {
+      await _loadAll();
+    }
+  }
+
+  bool get _isPaid {
+    final status = (_paymentStatus ?? '').trim().toLowerCase();
+    final requestStatus = (_paymentRequestStatus ?? '').trim().toLowerCase();
+
+    return status == 'paid' ||
+        status == 'approved' ||
+        requestStatus == 'approved';
+  }
+
+  bool get _hasPendingPaymentRequest {
+    return _paymentRequestStatus == 'pending';
+  }
+
+  bool get _isExecutorOwner {
+    final currentUserId = PocketBaseService.instance.currentUserId;
+    return currentUserId != null && currentUserId == _executorId;
+  }
+
+  bool get _isCustomerOwner {
+    final currentUserId = PocketBaseService.instance.currentUserId;
+    return currentUserId != null && currentUserId == _customerId;
+  }
+
+  String _formatMoney(double value) {
+    if (value % 1 == 0) {
+      return '${value.toStringAsFixed(0)} ₽';
+    }
+
+    return '${value.toStringAsFixed(2)} ₽';
+  }
+
+  AppStatusPill _taskStatusPill() {
+    final status = (_status ?? '—').trim().toLowerCase();
+
+    if (status == 'done' || status == 'completed') {
+      return AppStatusPill.success(_status ?? 'done');
+    }
+
+    if (status == 'in_progress' || status == 'progress') {
+      return AppStatusPill.pending(_status ?? 'in_progress');
+    }
+
+    return AppStatusPill(
+      text: _status ?? '—',
+      color: AppColors.textMuted,
+      icon: CupertinoIcons.circle,
+    );
+  }
+
+  AppStatusPill _paymentStatusPill() {
+    final status = (_paymentStatus ?? '—').trim().toLowerCase();
+
+    if (_isPaid || status == 'paid' || status == 'approved') {
+      return AppStatusPill.success('Оплата подтверждена');
+    }
+
+    if (_hasPendingPaymentRequest || status == 'pending') {
+      return AppStatusPill.pending('Ожидает оплаты');
+    }
+
+    if (status == 'rejected') {
+      return AppStatusPill.error('Оплата отклонена');
+    }
+
+    return AppStatusPill(
+      text: _paymentStatus ?? '—',
+      color: AppColors.textMuted,
+      icon: CupertinoIcons.creditcard,
+    );
+  }
+
+  void _goBack() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/tasks');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final theme = Theme.of(context);
-
-    if (_loading) {
-      return Scaffold(
-        drawer:
-            (_role != null && _name != null)
-                ? AppDrawer(
-                  role: _role!,
-                  displayName: _name!,
-                  avatarUrl: _photo,
-                )
-                : null,
-        appBar: AppBar(
-          title: const Text('Загрузка…'),
-          backgroundColor: cs.surface,
-          elevation: 0,
-        ),
-        body: const Center(child: CircularProgressIndicator()),
-        backgroundColor: cs.surface,
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        drawer:
-            (_role != null && _name != null)
-                ? AppDrawer(
-                  role: _role!,
-                  displayName: _name!,
-                  avatarUrl: _photo,
-                )
-                : null,
-        appBar: AppBar(
-          title: const Text('Ошибка'),
-          backgroundColor: cs.surface,
-          elevation: 0,
-        ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              _error!,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyLarge,
-            ),
-          ),
-        ),
-        backgroundColor: cs.surface,
-      );
-    }
-
     return Scaffold(
       drawer:
           (_role != null && _name != null)
               ? AppDrawer(role: _role!, displayName: _name!, avatarUrl: _photo)
               : null,
-      appBar: AppBar(
-        title: Text(_title ?? 'Task', style: theme.textTheme.headlineSmall),
-        backgroundColor: cs.surface,
-        elevation: 0,
-      ),
-      backgroundColor: cs.surface,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Status: $_status', style: theme.textTheme.bodyLarge),
-              Text(
-                'Payment status: $_paymentStatus',
-                style: theme.textTheme.bodyLarge,
-              ),
-              Text(
-                'Estimated: $_estimatedTime, Spent: $_timeSpent',
-                style: theme.textTheme.bodyLarge,
-              ),
-              Text('Amount: $_paymentAmount', style: theme.textTheme.bodyLarge),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  const Icon(Icons.schedule),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Deadline: $_deadline',
-                    style: theme.textTheme.bodyMedium,
+      backgroundColor: AppColors.background,
+      body: AppScreenBackground(
+        child: SafeArea(
+          child:
+              _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? AppErrorState(message: _error!, onRetry: _loadAll)
+                  : Column(
+                    children: [
+                      AppTopBar(
+                        title: 'Детали задачи',
+                        subtitle: 'Статус, оплата и чат',
+                        onBack: _goBack,
+                        onRefresh: _loadAll,
+                      ),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: _loadAll,
+                          child: ListView(
+                            physics: const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics(),
+                            ),
+                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                            children: [
+                              _TaskMainCard(
+                                title: _title ?? '—',
+                                deadline: _deadline ?? '—',
+                                taskStatus: _taskStatusPill(),
+                                paymentStatus: _paymentStatusPill(),
+                                amount: _formatMoney(_paymentAmount),
+                              ),
+                              const SizedBox(height: 12),
+                              _TaskMetricsCard(
+                                estimatedTime: _estimatedTime ?? '—',
+                                timeSpent: _timeSpent ?? '—',
+                                paymentRequestStatus:
+                                    _paymentRequestStatus ?? 'запроса нет',
+                                paymentStatus: _paymentStatus ?? '—',
+                              ),
+                              const SizedBox(height: 12),
+                              _TaskActionsCard(
+                                requestingPayment: _requestingPayment,
+                                isPaid: _isPaid,
+                                hasPendingPaymentRequest:
+                                    _hasPendingPaymentRequest,
+                                isExecutorOwner: _isExecutorOwner,
+                                isCustomerOwner: _isCustomerOwner,
+                                onOpenChat: () {
+                                  context.push(
+                                    '/tasks/communication/${widget.taskId}',
+                                  );
+                                },
+                                onRequestPayment: _requestPayment,
+                                onOpenPayment: _openPaymentPage,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskMainCard extends StatelessWidget {
+  final String title;
+  final String deadline;
+  final AppStatusPill taskStatus;
+  final AppStatusPill paymentStatus;
+  final String amount;
+
+  const _TaskMainCard({
+    required this.title,
+    required this.deadline,
+    required this.taskStatus,
+    required this.paymentStatus,
+    required this.amount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Задача'),
+          const SizedBox(height: 12),
+          Text(
+            title.trim().isEmpty ? 'Без описания' : title,
+            style: AppTextStyles.cardTitle.copyWith(fontSize: 17),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [taskStatus, paymentStatus],
+          ),
+          const SizedBox(height: 14),
+          Container(height: 1, color: AppColors.divider),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: AppMetaItem(
+                  icon: Icons.currency_ruble_rounded,
+                  label: 'Сумма',
+                  value: amount,
+                ),
               ),
-              const Spacer(),
-              ElevatedButton(
-                onPressed:
-                    () => context.push('/tasks/communication/${widget.taskId}'),
-                child: const Text('Open Chat'),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _requestPayment,
-                style: ElevatedButton.styleFrom(backgroundColor: cs.primary),
-                child: const Text('Request Payment'),
+              const SizedBox(width: 12),
+              Expanded(
+                child: AppMetaItem(
+                  icon: CupertinoIcons.calendar_today,
+                  label: 'Дедлайн',
+                  value: deadline,
+                ),
               ),
             ],
           ),
-        ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskMetricsCard extends StatelessWidget {
+  final String estimatedTime;
+  final String timeSpent;
+  final String paymentRequestStatus;
+  final String paymentStatus;
+
+  const _TaskMetricsCard({
+    required this.estimatedTime,
+    required this.timeSpent,
+    required this.paymentRequestStatus,
+    required this.paymentStatus,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Параметры'),
+          const SizedBox(height: 12),
+          _InfoRow(
+            icon: CupertinoIcons.timer,
+            label: 'Оценка времени',
+            value: estimatedTime,
+          ),
+          _InfoRow(
+            icon: CupertinoIcons.time,
+            label: 'Потрачено',
+            value: timeSpent,
+          ),
+          _InfoRow(
+            icon: CupertinoIcons.creditcard,
+            label: 'Статус оплаты',
+            value: paymentStatus,
+          ),
+          _InfoRow(
+            icon: CupertinoIcons.doc_text,
+            label: 'Запрос оплаты',
+            value: paymentRequestStatus,
+            isLast: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskActionsCard extends StatelessWidget {
+  final bool requestingPayment;
+  final bool isPaid;
+  final bool hasPendingPaymentRequest;
+  final bool isExecutorOwner;
+  final bool isCustomerOwner;
+  final VoidCallback onOpenChat;
+  final VoidCallback onRequestPayment;
+  final VoidCallback onOpenPayment;
+
+  const _TaskActionsCard({
+    required this.requestingPayment,
+    required this.isPaid,
+    required this.hasPendingPaymentRequest,
+    required this.isExecutorOwner,
+    required this.isCustomerOwner,
+    required this.onOpenChat,
+    required this.onRequestPayment,
+    required this.onOpenPayment,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppSectionHeader(title: 'Действия'),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: onOpenChat,
+            icon: const Icon(CupertinoIcons.chat_bubble_2),
+            label: const Text('Открыть чат'),
+          ),
+          if (isExecutorOwner && !isPaid) ...[
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              onPressed:
+                  requestingPayment || hasPendingPaymentRequest
+                      ? null
+                      : onRequestPayment,
+              icon:
+                  requestingPayment
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.payments_rounded),
+              label: Text(
+                hasPendingPaymentRequest
+                    ? 'Запрос оплаты ожидает заказчика'
+                    : 'Запросить оплату',
+              ),
+            ),
+          ],
+          if (isCustomerOwner && hasPendingPaymentRequest) ...[
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              onPressed: onOpenPayment,
+              icon: const Icon(Icons.account_balance_rounded),
+              label: const Text('Оплатить через банк'),
+            ),
+          ],
+          if (isPaid) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: null,
+              icon: const Icon(CupertinoIcons.check_mark_circled),
+              label: const Text('Оплата подтверждена'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool isLast;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.isLast = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+      margin: EdgeInsets.only(bottom: isLast ? 0 : 10),
+      decoration: BoxDecoration(
+        border:
+            isLast
+                ? null
+                : const Border(bottom: BorderSide(color: AppColors.divider)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.textMuted),
+          const SizedBox(width: 10),
+          Expanded(child: Text(label, style: AppTextStyles.small)),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: AppTextStyles.small.copyWith(
+                color: AppColors.text,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

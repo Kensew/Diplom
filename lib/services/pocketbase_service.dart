@@ -1,16 +1,38 @@
 import 'package:pocketbase/pocketbase.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class PocketBaseService {
-  PocketBaseService._();
+  PocketBaseService._(this.pb);
 
-  static final PocketBaseService instance = PocketBaseService._();
+  static PocketBaseService? _instance;
+
+  static PocketBaseService get instance {
+    final service = _instance;
+    if (service == null) {
+      throw StateError('PocketBaseService не инициализирован');
+    }
+    return service;
+  }
 
   static const String baseUrl = String.fromEnvironment(
     'POCKETBASE_URL',
     defaultValue: 'http://127.0.0.1:8090',
   );
 
-  final PocketBase pb = PocketBase(baseUrl);
+  static Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final authStore = AsyncAuthStore(
+      initial: prefs.getString('pb_auth'),
+      save: (String data) async {
+        await prefs.setString('pb_auth', data);
+      },
+    );
+
+    _instance = PocketBaseService._(PocketBase(baseUrl, authStore: authStore));
+  }
+
+  final PocketBase pb;
 
   bool get isLoggedIn => pb.authStore.isValid;
 
