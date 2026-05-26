@@ -1,5 +1,3 @@
-// lib/pages/feedback_create_page.dart
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -12,7 +10,10 @@ import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 class FeedbackCreatePage extends StatefulWidget {
   final String taskId;
 
-  const FeedbackCreatePage({required this.taskId, Key? key}) : super(key: key);
+  const FeedbackCreatePage({
+    required this.taskId,
+    Key? key,
+  }) : super(key: key);
 
   @override
   State<FeedbackCreatePage> createState() => _FeedbackCreatePageState();
@@ -24,6 +25,7 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
   bool _loading = true;
   bool _saving = false;
   bool _alreadyExists = false;
+  String? _existingFeedbackId;
   String? _error;
 
   int _rating = 5;
@@ -125,6 +127,7 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
     setState(() {
       _loading = true;
       _error = null;
+      _existingFeedbackId = null;
     });
 
     try {
@@ -177,17 +180,35 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
           .collection('feedbacks')
           .getList(page: 1, perPage: 200);
 
-      bool exists = false;
+      String? existingFeedbackId;
+      int? existingRating;
+      String? existingText;
+      DateTime? existingCreatedAt;
 
       for (final feedback in feedbacks.items) {
         final feedbackOrderId = _relationId(feedback.data['order_id']);
         final feedbackReviewerId = _relationId(feedback.data['reviewer_id']);
 
-        if (feedbackOrderId == orderId && feedbackReviewerId == currentUserId) {
-          exists = true;
-          break;
+        if (feedbackOrderId != orderId || feedbackReviewerId != currentUserId) {
+          continue;
+        }
+
+        final createdAt = DateTime.tryParse(
+          feedback.get<String>('created') ?? '',
+        );
+
+        if (existingFeedbackId == null ||
+            (createdAt != null &&
+                (existingCreatedAt == null ||
+                    createdAt.isAfter(existingCreatedAt)))) {
+          existingFeedbackId = feedback.id;
+          existingCreatedAt = createdAt;
+          existingRating = (feedback.data['estimate'] as num?)?.toInt();
+          existingText = feedback.data['text'] as String? ?? '';
         }
       }
+
+      final exists = existingFeedbackId != null;
 
       _orderId = orderId;
       _reviewerId = currentUserId;
@@ -195,6 +216,12 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
       _reviewType = reviewType;
       _reviewedRole = reviewedRole;
       _alreadyExists = exists;
+      _existingFeedbackId = existingFeedbackId;
+
+      if (exists) {
+        _rating = existingRating ?? 5;
+        _textCtrl.text = existingText ?? '';
+      }
 
       _orderTitle = order['task_description'] as String? ?? 'Заказ';
       _reviewedName =
@@ -202,14 +229,11 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
           reviewedUser?['email'] as String? ??
           reviewedRole;
 
-      _reviewedAvatarUrl =
-          reviewedUserId == null
-              ? null
-              : PocketBaseFileService.fileUrl(
-                collectionName: 'users',
-                recordId: reviewedUserId,
-                fileValue: reviewedUser?['photo'],
-              );
+      _reviewedAvatarUrl = PocketBaseFileService.fileUrl(
+        collectionName: 'users',
+        recordId: reviewedUserId,
+        fileValue: reviewedUser?['photo'],
+      );
     } catch (e) {
       _error = 'Ошибка загрузки формы отзыва: $e';
     } finally {
@@ -220,7 +244,7 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
   }
 
   Future<void> _submit() async {
-    if (_saving || _alreadyExists) return;
+    if (_saving) return;
 
     final orderId = _orderId;
     final reviewerId = _reviewerId;
@@ -240,32 +264,45 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
     setState(() => _saving = true);
 
     try {
-      await PocketBaseService.instance.pb
-          .collection('feedbacks')
-          .create(
-            body: {
-              'order_id': orderId,
-              'reviewer_id': reviewerId,
-              'reviewed_user_id': reviewedUserId,
-              'type': reviewType,
-              'estimate': _rating,
-              'text': _textCtrl.text.trim(),
-            },
-          );
+      final wasEditing = _existingFeedbackId != null;
+
+      final body = {
+        'order_id': orderId,
+        'reviewer_id': reviewerId,
+        'reviewed_user_id': reviewedUserId,
+        'type': reviewType,
+        'estimate': _rating,
+        'text': _textCtrl.text.trim(),
+      };
+
+      if (_existingFeedbackId == null) {
+        final created = await PocketBaseService.instance.pb
+            .collection('feedbacks')
+            .create(body: body);
+
+        _existingFeedbackId = created.id;
+        _alreadyExists = true;
+      } else {
+        await PocketBaseService.instance.pb
+            .collection('feedbacks')
+            .update(_existingFeedbackId!, body: body);
+      }
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Отзыв сохранён')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(wasEditing ? 'Отзыв обновлён' : 'Отзыв сохранён'),
+        ),
+      );
 
       context.pop(true);
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Ошибка сохранения отзыва: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка сохранения отзыва: $e')),
+      );
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -287,38 +324,35 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
       backgroundColor: AppColors.background,
       body: AppScreenBackground(
         child: SafeArea(
-          child:
-              _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
                   ? AppErrorState(message: _error!, onRetry: _loadContext)
                   : Column(
-                    children: [
-                      AppTopBar(
-                        title: 'Оставить отзыв',
-                        subtitle: 'Оценка после оплаты заказа',
-                        onBack: _goBack,
-                      ),
-                      Expanded(
-                        child: ListView(
-                          physics: const BouncingScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-                          children: [
-                            _ReviewTargetCard(
-                              name: _reviewedName ?? 'Пользователь',
-                              role: _reviewedRole ?? 'Участник',
-                              avatarUrl: _reviewedAvatarUrl,
-                              orderTitle: _orderTitle ?? 'Заказ',
-                            ),
-                            const SizedBox(height: 12),
-                            if (_alreadyExists)
-                              const AppEmptyState(
-                                icon: CupertinoIcons.check_mark_circled,
-                                title: 'Отзыв уже оставлен',
-                                subtitle:
-                                    'По одному заказу каждая сторона может оставить только один отзыв.',
-                              )
-                            else ...[
+                      children: [
+                        AppTopBar(
+                          title: _alreadyExists
+                              ? 'Изменить отзыв'
+                              : 'Оставить отзыв',
+                          subtitle: 'Оценка после оплаты заказа',
+                          onBack: _goBack,
+                        ),
+                        Expanded(
+                          child: ListView(
+                            physics: const BouncingScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                            children: [
+                              _ReviewTargetCard(
+                                name: _reviewedName ?? 'Пользователь',
+                                role: _reviewedRole ?? 'Участник',
+                                avatarUrl: _reviewedAvatarUrl,
+                                orderTitle: _orderTitle ?? 'Заказ',
+                              ),
+                              const SizedBox(height: 12),
+                              if (_alreadyExists) ...[
+                                const _ExistingReviewNotice(),
+                                const SizedBox(height: 12),
+                              ],
                               _RatingCard(
                                 rating: _rating,
                                 onChanged: (value) {
@@ -333,14 +367,14 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
                               const SizedBox(height: 12),
                               _SubmitReviewCard(
                                 saving: _saving,
+                                editing: _alreadyExists,
                                 onSubmit: _submit,
                               ),
                             ],
-                          ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
         ),
       ),
     );
@@ -408,11 +442,41 @@ class _ReviewTargetCard extends StatelessWidget {
   }
 }
 
+class _ExistingReviewNotice extends StatelessWidget {
+  const _ExistingReviewNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          const Icon(
+            CupertinoIcons.pencil_circle,
+            color: AppColors.accent,
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Отзыв уже был опубликован. Сейчас вы редактируете существующую запись.',
+              style: AppTextStyles.body,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RatingCard extends StatelessWidget {
   final int rating;
   final ValueChanged<int> onChanged;
 
-  const _RatingCard({required this.rating, required this.onChanged});
+  const _RatingCard({
+    required this.rating,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -442,7 +506,9 @@ class _RatingCard extends StatelessWidget {
             }),
           ),
           const SizedBox(height: 8),
-          Center(child: Text('$rating из 5', style: AppTextStyles.cardTitle)),
+          Center(
+            child: Text('$rating из 5', style: AppTextStyles.cardTitle),
+          ),
         ],
       ),
     );
@@ -453,7 +519,10 @@ class _TextFeedbackCard extends StatelessWidget {
   final TextEditingController controller;
   final bool saving;
 
-  const _TextFeedbackCard({required this.controller, required this.saving});
+  const _TextFeedbackCard({
+    required this.controller,
+    required this.saving,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -478,8 +547,7 @@ class _TextFeedbackCard extends StatelessWidget {
             style: AppTextStyles.body.copyWith(color: AppColors.text),
             decoration: const InputDecoration(
               labelText: 'Текст отзыва',
-              hintText:
-                  'Например: работа выполнена в срок, связь была хорошая...',
+              hintText: 'Например: работа выполнена в срок, связь была хорошая...',
               alignLabelWithHint: true,
             ),
           ),
@@ -491,9 +559,14 @@ class _TextFeedbackCard extends StatelessWidget {
 
 class _SubmitReviewCard extends StatelessWidget {
   final bool saving;
+  final bool editing;
   final VoidCallback onSubmit;
 
-  const _SubmitReviewCard({required this.saving, required this.onSubmit});
+  const _SubmitReviewCard({
+    required this.saving,
+    required this.editing,
+    required this.onSubmit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -504,19 +577,26 @@ class _SubmitReviewCard extends StatelessWidget {
         children: [
           ElevatedButton.icon(
             onPressed: saving ? null : onSubmit,
-            icon:
-                saving
-                    ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                    : const Icon(CupertinoIcons.check_mark_circled),
-            label: Text(saving ? 'Сохраняем...' : 'Опубликовать отзыв'),
+            icon: saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(CupertinoIcons.check_mark_circled),
+            label: Text(
+              saving
+                  ? 'Сохраняем...'
+                  : editing
+                      ? 'Сохранить изменения'
+                      : 'Опубликовать отзыв',
+            ),
           ),
           const SizedBox(height: 10),
           Text(
-            'После публикации отзыв появится в профиле пользователя.',
+            editing
+                ? 'Изменения будут применены к уже опубликованному отзыву.'
+                : 'После публикации отзыв появится в профиле пользователя.',
             textAlign: TextAlign.center,
             style: AppTextStyles.caption,
           ),

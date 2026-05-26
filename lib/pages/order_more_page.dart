@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
@@ -22,6 +23,7 @@ class OrderMorePage extends StatefulWidget {
 
 class _OrderMorePageState extends State<OrderMorePage> {
   final _dateFmt = DateFormat('dd.MM.yyyy');
+  final _complexityReasonCtrl = TextEditingController();
 
   bool _loading = true;
   bool _applying = false;
@@ -32,6 +34,9 @@ class _OrderMorePageState extends State<OrderMorePage> {
   String? _framework;
   String? _language;
   num? _price;
+  int? _complexityAuto;
+  String? _complexityFactorsRaw;
+  int? _complexityProposed;
 
   String? _customerId;
   String? _customerName;
@@ -120,7 +125,6 @@ class _OrderMorePageState extends State<OrderMorePage> {
         lower.endsWith('.webp') ||
         lower.endsWith('.gif');
   }
-
 
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
@@ -395,6 +399,16 @@ class _OrderMorePageState extends State<OrderMorePage> {
       if (_hasApplied) {
         throw 'Заявка уже отправлена';
       }
+      final autoComplexity = (_complexityAuto ?? 3).clamp(1, 5);
+      final proposedComplexity = OrderComplexityService.clampProposedComplexity(
+        autoComplexity: autoComplexity,
+        proposedComplexity: _complexityProposed ?? autoComplexity,
+      );
+
+      if (proposedComplexity != autoComplexity &&
+          _complexityReasonCtrl.text.trim().isEmpty) {
+        throw 'Укажите причину изменения сложности';
+      }
 
       await service.pb
           .collection('applications')
@@ -403,6 +417,8 @@ class _OrderMorePageState extends State<OrderMorePage> {
               'order_id': widget.orderId,
               'executor_id': userId,
               'status': 'pending',
+              'complexity_proposed': proposedComplexity,
+              'complexity_reason': _complexityReasonCtrl.text.trim(),
             },
           );
 
@@ -726,6 +742,155 @@ class _OrderMainCard extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderComplexityCard extends StatelessWidget {
+  final int? autoComplexity;
+  final String? factorsRaw;
+  final int? proposedComplexity;
+  final TextEditingController reasonCtrl;
+  final bool canEdit;
+  final ValueChanged<int> onChanged;
+
+  const _OrderComplexityCard({
+    required this.autoComplexity,
+    required this.factorsRaw,
+    required this.proposedComplexity,
+    required this.reasonCtrl,
+    required this.canEdit,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = (autoComplexity ?? 3).clamp(1, 5);
+    final selected = (proposedComplexity ?? base).clamp(1, 5);
+    final allowedValues = OrderComplexityService.allowedProposedValues(base);
+    final factors = OrderComplexityService.parseFactors(factorsRaw);
+    final changed = selected != base;
+
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Сложность'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.accentSoft,
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(
+                  '${autoComplexity ?? base}/5',
+                  style: AppTextStyles.sectionTitle.copyWith(
+                    color: AppColors.accent,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      OrderComplexityService.complexityLabel(
+                        autoComplexity ?? base,
+                      ),
+                      style: AppTextStyles.cardTitle,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      canEdit
+                          ? 'Можно предложить сложность на один уровень ниже или выше системной оценки.'
+                          : 'Системная оценка сложности заказа.',
+                      style: AppTextStyles.caption,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (factors.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children:
+                  factors
+                      .map(
+                        (factor) => AppTag(
+                          icon: CupertinoIcons.checkmark_circle,
+                          label: '${factor.label} +${factor.points}',
+                        ),
+                      )
+                      .toList(),
+            ),
+          ],
+          if (canEdit) ...[
+            const SizedBox(height: 14),
+            Container(height: 1, color: AppColors.divider),
+            const SizedBox(height: 12),
+            Text(
+              'Ваша оценка',
+              style: AppTextStyles.small.copyWith(
+                color: AppColors.text,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children:
+                  allowedValues.map((value) {
+                    final isSelected = value == selected;
+
+                    if (isSelected) {
+                      return ElevatedButton(
+                        onPressed: () => onChanged(value),
+                        child: Text('$value / 5'),
+                      );
+                    }
+
+                    return OutlinedButton(
+                      onPressed: () => onChanged(value),
+                      child: Text('$value / 5'),
+                    );
+                  }).toList(),
+            ),
+            if (changed) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtrl,
+                maxLines: 3,
+                minLines: 2,
+                style: AppTextStyles.body.copyWith(color: AppColors.text),
+                decoration: const InputDecoration(
+                  labelText: 'Причина изменения сложности',
+                  hintText:
+                      'Например: потребуется интеграция API и работа с файлами',
+                  alignLabelWithHint: true,
+                ),
+              ),
+            ],
+          ] else if (proposedComplexity != null) ...[
+            const SizedBox(height: 12),
+            AppTag(
+              icon: CupertinoIcons.person_crop_circle,
+              label: 'Оценка исполнителя: $selected / 5',
+            ),
+          ],
         ],
       ),
     );

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
@@ -24,6 +25,9 @@ class _ReqItem {
   final String? orderId;
   final String? executorId;
   final String? taskId;
+  final int? complexityAuto;
+  final int? complexityProposed;
+  final String? complexityReason;
 
   _ReqItem({
     required this.id,
@@ -37,6 +41,9 @@ class _ReqItem {
     this.orderId,
     this.executorId,
     this.taskId,
+    this.complexityAuto,
+    this.complexityProposed,
+    this.complexityReason,
   });
 }
 
@@ -350,6 +357,10 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       if (customerId != userId) continue;
 
       final executor = await _getRecordData('users', executorId);
+      final complexityAuto = (order['complexity_auto'] as num?)?.toInt();
+      final complexityProposed =
+          (app.data['complexity_proposed'] as num?)?.toInt() ?? complexityAuto;
+      final complexityReason = app.data['complexity_reason'] as String? ?? '';
 
       loaded.add(
         _ReqItem(
@@ -368,6 +379,9 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
           amount: (order['price'] as num?)?.toDouble(),
           orderId: orderId,
           executorId: executorId,
+          complexityAuto: complexityAuto,
+          complexityProposed: complexityProposed,
+          complexityReason: complexityReason,
         ),
       );
     }
@@ -395,6 +409,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
       final customerId = _relationId(order['customer_id']);
       if (customerId != userId) continue;
+
+      final complexityFinal = (task['complexity_final'] as num?)?.toInt();
 
       final requestedById = _relationId(payment.data['requested_by']);
       final requestedBy = await _getRecordData('users', requestedById);
@@ -532,6 +548,19 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       'pending',
       'unpaid',
     ]);
+    final orderComplexityAuto = (order?['complexity_auto'] as num?)?.toInt();
+    final proposedComplexity =
+        item.complexityProposed ?? item.complexityAuto ?? orderComplexityAuto;
+    final complexityFinal =
+        proposedComplexity == null
+            ? null
+            : proposedComplexity.clamp(1, 5).toInt();
+    final complexitySource =
+        complexityFinal != null &&
+                orderComplexityAuto != null &&
+                complexityFinal != orderComplexityAuto
+            ? 'executor_adjusted'
+            : 'auto';
 
     await pb
         .collection('tasks')
@@ -544,6 +573,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
             'estimated_time': 0,
             'time_spent': 0,
             'payment_amount': item.amount ?? 0,
+            if (complexityFinal != null) 'complexity_final': complexityFinal,
+            if (complexityFinal != null) 'complexity_source': complexitySource,
           },
         );
   }
@@ -591,6 +622,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       await _loadAll();
     }
   }
+
   Future<void> _rejectAll() async {
     if (_busyItemId != null) return;
 
@@ -884,6 +916,10 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                                         ),
                                         onAccept: () => _acceptItem(item),
                                         onReject: () => _decide(item, false),
+                                        onOpenTask:
+                                            () => _openTaskDetails(item),
+                                        onOpenFeedback:
+                                            () => _openFeedbackForItem(item),
                                       );
                                     }, childCount: _items.length * 2 - 1),
                                   ),
@@ -1045,6 +1081,8 @@ class _RequestCard extends StatelessWidget {
   final String positiveButtonText;
   final VoidCallback onAccept;
   final VoidCallback onReject;
+  final VoidCallback onOpenTask;
+  final VoidCallback onOpenFeedback;
 
   const _RequestCard({
     required this.item,
@@ -1058,17 +1096,19 @@ class _RequestCard extends StatelessWidget {
     required this.positiveButtonText,
     required this.onAccept,
     required this.onReject,
+    required this.onOpenTask,
+    required this.onOpenFeedback,
   });
 
   bool get _pending => item.status == 'pending';
   bool get _approved => item.status == 'approved';
   bool get _hasTask => item.taskId != null && item.taskId!.isNotEmpty;
-  bool get _canLeaveFeedback =>
-      item.type == _ReqType.payment && _approved && _hasTask;
+  bool get _canLeaveFeedback => _approved && _hasTask;
 
   @override
   Widget build(BuildContext context) {
     return AppSurfaceCard(
+      onTap: _hasTask ? onOpenTask : null,
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1117,8 +1157,36 @@ class _RequestCard extends StatelessWidget {
               statusPill,
               if (item.type == _ReqType.payment)
                 AppTag(icon: Icons.currency_ruble_rounded, label: amountText),
+              if (item.complexityProposed != null)
+                AppTag(
+                  icon: Icons.bar_chart_rounded,
+                  label:
+                      'Сложность ${item.complexityProposed}/5 · ${OrderComplexityService.complexityLabel(item.complexityProposed)}',
+                ),
+              if (item.type == _ReqType.application &&
+                  item.complexityAuto != null &&
+                  item.complexityProposed != null &&
+                  item.complexityAuto != item.complexityProposed)
+                AppTag(
+                  icon: Icons.tune_rounded,
+                  label: 'Система ${item.complexityAuto}/5',
+                ),
+              if (_hasTask)
+                const AppTag(
+                  icon: CupertinoIcons.doc_text,
+                  label: 'Есть задача',
+                ),
             ],
           ),
+          if (item.type == _ReqType.application &&
+              item.complexityReason != null &&
+              item.complexityReason!.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Причина изменения сложности: ${item.complexityReason}',
+              style: AppTextStyles.caption,
+            ),
+          ],
           if (_pending) ...[
             const SizedBox(height: 14),
             Container(height: 1, color: AppColors.divider),
@@ -1152,6 +1220,24 @@ class _RequestCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+          if (!_pending && _hasTask) ...[
+            const SizedBox(height: 14),
+            Container(height: 1, color: AppColors.divider),
+            const SizedBox(height: 12),
+            if (_canLeaveFeedback) ...[
+              ElevatedButton.icon(
+                onPressed: busy ? null : onOpenFeedback,
+                icon: const Icon(CupertinoIcons.star_fill),
+                label: const Text('Оставить / изменить отзыв'),
+              ),
+              const SizedBox(height: 8),
+            ],
+            OutlinedButton.icon(
+              onPressed: busy ? null : onOpenTask,
+              icon: const Icon(CupertinoIcons.doc_text),
+              label: const Text('Открыть задачу'),
             ),
           ],
         ],

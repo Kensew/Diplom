@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
@@ -24,11 +25,18 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _descCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
+  final _screensCtrl = TextEditingController(text: '1');
   final _dateFmt = DateFormat('dd.MM.yyyy');
 
   DateTime? _deadline;
   bool _loading = true;
   bool _saving = false;
+
+  bool _requiresFiles = false;
+  bool _requiresAuth = false;
+  bool _requiresDatabase = false;
+  bool _requiresApi = false;
+  bool _requiresPayment = false;
 
   List<Map<String, dynamic>> _frameworks = [];
   List<Map<String, dynamic>> _languages = [];
@@ -45,12 +53,16 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
   void initState() {
     super.initState();
     _loadMeta();
+    _descCtrl.addListener(_refreshComplexityPreview);
+    _priceCtrl.addListener(_refreshComplexityPreview);
+    _screensCtrl.addListener(_refreshComplexityPreview);
   }
 
   @override
   void dispose() {
     _descCtrl.dispose();
     _priceCtrl.dispose();
+    _screensCtrl.dispose();
     super.dispose();
   }
 
@@ -239,6 +251,7 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
   void _removeFile(int index) {
     setState(() {
       _files.removeAt(index);
+      if (_files.isEmpty) _requiresFiles = false;
     });
   }
 
@@ -284,6 +297,38 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
     return 'Не выбрано';
   }
 
+  double _parsePrice() {
+    return double.tryParse(_priceCtrl.text.trim().replaceAll(',', '.')) ?? 0;
+  }
+
+  int _parseScreensOrFunctionsCount() {
+    final parsed = int.tryParse(_screensCtrl.text.trim()) ?? 1;
+    return parsed.clamp(1, 99);
+  }
+
+  OrderComplexityResult get _complexityResult {
+    return OrderComplexityService.calculateAutoComplexity(
+      description: _descCtrl.text,
+      deadline: _deadline,
+      price: _parsePrice(),
+      requiresFiles: _requiresFiles,
+      requiresAuth: _requiresAuth,
+      requiresDatabase: _requiresDatabase,
+      requiresApi: _requiresApi,
+      requiresPayment: _requiresPayment,
+      screensOrFunctionsCount: _parseScreensOrFunctionsCount(),
+    );
+  }
+
+  void _refreshComplexityPreview() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _setComplexityFlag(VoidCallback mutation) {
+    setState(mutation);
+  }
+
   Future<void> _submitOrder() async {
     final description = _descCtrl.text.trim();
     final price =
@@ -312,6 +357,8 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
       return;
     }
 
+    final complexity = _complexityResult;
+
     setState(() => _saving = true);
 
     try {
@@ -325,6 +372,8 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
               'task_description': description,
               'deadline': _deadline!.toIso8601String(),
               'price': price,
+              'complexity_auto': complexity.complexity,
+              'complexity_factors': complexity.factorsJson,
             },
           );
 
@@ -440,6 +489,38 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
                                 );
                               },
                               onPickDeadline: _pickDeadline,
+                            ),
+                            const SizedBox(height: 12),
+                            _ComplexityCard(
+                              result: _complexityResult,
+                              screensCtrl: _screensCtrl,
+                              saving: _saving,
+                              requiresFiles: _requiresFiles,
+                              requiresAuth: _requiresAuth,
+                              requiresDatabase: _requiresDatabase,
+                              requiresApi: _requiresApi,
+                              requiresPayment: _requiresPayment,
+                              onRequiresFilesChanged: (value) {
+                                _setComplexityFlag(
+                                  () => _requiresFiles = value,
+                                );
+                              },
+                              onRequiresAuthChanged: (value) {
+                                _setComplexityFlag(() => _requiresAuth = value);
+                              },
+                              onRequiresDatabaseChanged: (value) {
+                                _setComplexityFlag(
+                                  () => _requiresDatabase = value,
+                                );
+                              },
+                              onRequiresApiChanged: (value) {
+                                _setComplexityFlag(() => _requiresApi = value);
+                              },
+                              onRequiresPaymentChanged: (value) {
+                                _setComplexityFlag(
+                                  () => _requiresPayment = value,
+                                );
+                              },
                             ),
                             const SizedBox(height: 12),
                             _AttachmentsCard(
@@ -585,6 +666,207 @@ class _OrderFormCard extends StatelessWidget {
             value: deadlineText,
             disabled: saving,
             onTap: onPickDeadline,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ComplexityCard extends StatelessWidget {
+  final OrderComplexityResult result;
+  final TextEditingController screensCtrl;
+  final bool saving;
+  final bool requiresFiles;
+  final bool requiresAuth;
+  final bool requiresDatabase;
+  final bool requiresApi;
+  final bool requiresPayment;
+  final ValueChanged<bool> onRequiresFilesChanged;
+  final ValueChanged<bool> onRequiresAuthChanged;
+  final ValueChanged<bool> onRequiresDatabaseChanged;
+  final ValueChanged<bool> onRequiresApiChanged;
+  final ValueChanged<bool> onRequiresPaymentChanged;
+
+  const _ComplexityCard({
+    required this.result,
+    required this.screensCtrl,
+    required this.saving,
+    required this.requiresFiles,
+    required this.requiresAuth,
+    required this.requiresDatabase,
+    required this.requiresApi,
+    required this.requiresPayment,
+    required this.onRequiresFilesChanged,
+    required this.onRequiresAuthChanged,
+    required this.onRequiresDatabaseChanged,
+    required this.onRequiresApiChanged,
+    required this.onRequiresPaymentChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final complexity = result.complexity;
+
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Сложность заказа'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.accentSoft,
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(
+                  '$complexity/5',
+                  style: AppTextStyles.sectionTitle.copyWith(
+                    color: AppColors.accent,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      OrderComplexityService.complexityLabel(complexity),
+                      style: AppTextStyles.cardTitle,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Система рассчитывает сложность по признакам заказа. Исполнитель сможет скорректировать её только на один уровень.',
+                      style: AppTextStyles.caption,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: screensCtrl,
+            enabled: !saving,
+            keyboardType: TextInputType.number,
+            style: AppTextStyles.body.copyWith(color: AppColors.text),
+            decoration: const InputDecoration(
+              labelText: 'Количество экранов или функций',
+              hintText: 'Например: 3',
+              prefixIcon: Icon(CupertinoIcons.square_grid_2x2),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _ComplexitySwitchRow(
+            title: 'Работа с файлами',
+            subtitle: 'Загрузка, просмотр, вложения, архивы, документы',
+            value: requiresFiles,
+            onChanged: saving ? null : onRequiresFilesChanged,
+          ),
+          _ComplexitySwitchRow(
+            title: 'Авторизация или роли',
+            subtitle: 'Вход, права доступа, разные сценарии пользователей',
+            value: requiresAuth,
+            onChanged: saving ? null : onRequiresAuthChanged,
+          ),
+          _ComplexitySwitchRow(
+            title: 'База данных',
+            subtitle: 'Сущности, связи, хранение состояния',
+            value: requiresDatabase,
+            onChanged: saving ? null : onRequiresDatabaseChanged,
+          ),
+          _ComplexitySwitchRow(
+            title: 'Интеграция/API',
+            subtitle: 'Внешние сервисы, серверные запросы, обмен данными',
+            value: requiresApi,
+            onChanged: saving ? null : onRequiresApiChanged,
+          ),
+          _ComplexitySwitchRow(
+            title: 'Оплата или платёжная логика',
+            subtitle: 'Платежи, статусы оплаты, подтверждения',
+            value: requiresPayment,
+            onChanged: saving ? null : onRequiresPaymentChanged,
+            isLast: true,
+          ),
+          if (result.factors.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children:
+                  result.factors
+                      .map(
+                        (factor) => AppTag(
+                          icon: CupertinoIcons.checkmark_circle,
+                          label: '${factor.label} +${factor.points}',
+                        ),
+                      )
+                      .toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ComplexitySwitchRow extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  final bool isLast;
+
+  const _ComplexitySwitchRow({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+    this.isLast = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+      margin: EdgeInsets.only(bottom: isLast ? 0 : 10),
+      decoration: BoxDecoration(
+        border:
+            isLast
+                ? null
+                : const Border(bottom: BorderSide(color: AppColors.divider)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.small.copyWith(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(subtitle, style: AppTextStyles.caption),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Switch.adaptive(
+            value: value,
+            onChanged: onChanged,
+            activeColor: AppColors.accent,
           ),
         ],
       ),

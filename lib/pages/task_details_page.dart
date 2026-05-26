@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_file_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
@@ -32,6 +33,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   String? _estimatedTime;
   String? _timeSpent;
   double _paymentAmount = 0;
+  int? _complexityFinal;
+  String? _complexitySource;
 
   String? _orderId;
   String? _customerId;
@@ -224,6 +227,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     _estimatedTime = '${task.data['estimated_time']?.toString() ?? '0'}ч';
     _timeSpent = '${task.data['time_spent']?.toString() ?? '0'}ч';
     _paymentAmount = ((task.data['payment_amount'] as num?) ?? 0).toDouble();
+    _complexityFinal = (task.data['complexity_final'] as num?)?.toInt();
+    _complexitySource = task.data['complexity_source'] as String?;
   }
 
   Future<void> _loadPaymentRequest() async {
@@ -403,6 +408,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       await _loadAll();
     }
   }
+
   bool get _isPaid {
     final status = (_paymentStatus ?? '').trim().toLowerCase();
     final requestStatus = (_paymentRequestStatus ?? '').trim().toLowerCase();
@@ -424,6 +430,17 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   bool get _isCustomerOwner {
     final currentUserId = PocketBaseService.instance.currentUserId;
     return currentUserId != null && currentUserId == _customerId;
+  }
+
+  String _complexityText() {
+    final value = _complexityFinal;
+    if (value == null) return '—';
+
+    return '$value / 5 · ${OrderComplexityService.complexityLabel(value)}';
+  }
+
+  String _complexitySourceText() {
+    return OrderComplexityService.sourceLabel(_complexitySource);
   }
 
   String _formatMoney(double value) {
@@ -528,6 +545,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                                 paymentRequestStatus:
                                     _paymentRequestStatus ?? 'запроса нет',
                                 paymentStatus: _paymentStatus ?? '—',
+                                complexityText: _complexityText(),
+                                complexitySourceText: _complexitySourceText(),
                               ),
                               const SizedBox(height: 12),
                               _TaskActionsCard(
@@ -629,12 +648,16 @@ class _TaskMetricsCard extends StatelessWidget {
   final String timeSpent;
   final String paymentRequestStatus;
   final String paymentStatus;
+  final String complexityText;
+  final String complexitySourceText;
 
   const _TaskMetricsCard({
     required this.estimatedTime,
     required this.timeSpent,
     required this.paymentRequestStatus,
     required this.paymentStatus,
+    required this.complexityText,
+    required this.complexitySourceText,
   });
 
   @override
@@ -655,6 +678,16 @@ class _TaskMetricsCard extends StatelessWidget {
             icon: CupertinoIcons.time,
             label: 'Потрачено',
             value: timeSpent,
+          ),
+          _InfoRow(
+            icon: Icons.bar_chart_rounded,
+            label: 'Сложность',
+            value: complexityText,
+          ),
+          _InfoRow(
+            icon: Icons.tune_rounded,
+            label: 'Источник оценки',
+            value: complexitySourceText,
           ),
           _InfoRow(
             icon: CupertinoIcons.creditcard,
