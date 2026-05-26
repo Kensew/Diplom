@@ -40,6 +40,11 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   String? _paymentRequestId;
   String? _paymentRequestStatus;
 
+  bool _canLeaveFeedback = false;
+  bool _feedbackAlreadyLeft = false;
+  String? _feedbackTargetName;
+  String? _feedbackTargetRole;
+
   String? _role;
   String? _name;
   String? _photo;
@@ -155,6 +160,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       await _loadDrawerData();
       await _loadDetail();
       await _loadPaymentRequest();
+      await _loadFeedbackState();
     } catch (e) {
       _error = 'Ошибка загрузки задачи: $e';
     } finally {
@@ -274,6 +280,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       }
 
       await _loadPaymentRequest();
+      await _loadFeedbackState();
 
       if (_paymentRequestStatus == 'pending') {
         throw 'Запрос оплаты уже ожидает решения заказчика';
@@ -341,6 +348,61 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     }
   }
 
+  Future<void> _loadFeedbackState() async {
+    _canLeaveFeedback = false;
+    _feedbackAlreadyLeft = false;
+    _feedbackTargetName = null;
+    _feedbackTargetRole = null;
+
+    if (!_isPaid || _orderId == null) return;
+
+    final currentUserId = PocketBaseService.instance.currentUserId;
+    if (currentUserId == null) return;
+
+    String? targetUserId;
+    String? targetRole;
+
+    if (currentUserId == _customerId && _executorId != null) {
+      targetUserId = _executorId;
+      targetRole = 'исполнителю';
+    } else if (currentUserId == _executorId && _customerId != null) {
+      targetUserId = _customerId;
+      targetRole = 'заказчику';
+    } else {
+      return;
+    }
+
+    final targetUser = await _getRecordData('users', targetUserId);
+
+    final feedbacks = await PocketBaseService.instance.pb
+        .collection('feedbacks')
+        .getList(page: 1, perPage: 200);
+
+    for (final feedback in feedbacks.items) {
+      final orderId = _relationId(feedback.data['order_id']);
+      final reviewerId = _relationId(feedback.data['reviewer_id']);
+
+      if (orderId == _orderId && reviewerId == currentUserId) {
+        _feedbackAlreadyLeft = true;
+        break;
+      }
+    }
+
+    _canLeaveFeedback = true;
+    _feedbackTargetRole = targetRole;
+    _feedbackTargetName =
+        targetUser?['name'] as String? ??
+        targetUser?['email'] as String? ??
+        'пользователю';
+  }
+
+  Future<void> _openFeedbackPage() async {
+    final result = await context.push('/feedbacks/task/${widget.taskId}');
+
+    if (result == true) {
+      await _loadAll();
+    }
+  }
   bool get _isPaid {
     final status = (_paymentStatus ?? '').trim().toLowerCase();
     final requestStatus = (_paymentRequestStatus ?? '').trim().toLowerCase();
@@ -475,6 +537,10 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                                     _hasPendingPaymentRequest,
                                 isExecutorOwner: _isExecutorOwner,
                                 isCustomerOwner: _isCustomerOwner,
+                                canLeaveFeedback: _canLeaveFeedback,
+                                feedbackAlreadyLeft: _feedbackAlreadyLeft,
+                                feedbackTargetName: _feedbackTargetName,
+                                feedbackTargetRole: _feedbackTargetRole,
                                 onOpenChat: () {
                                   context.push(
                                     '/tasks/communication/${widget.taskId}',
@@ -482,6 +548,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                                 },
                                 onRequestPayment: _requestPayment,
                                 onOpenPayment: _openPaymentPage,
+                                onOpenFeedback: _openFeedbackPage,
                               ),
                             ],
                           ),
@@ -612,9 +679,14 @@ class _TaskActionsCard extends StatelessWidget {
   final bool hasPendingPaymentRequest;
   final bool isExecutorOwner;
   final bool isCustomerOwner;
+  final bool canLeaveFeedback;
+  final bool feedbackAlreadyLeft;
+  final String? feedbackTargetName;
+  final String? feedbackTargetRole;
   final VoidCallback onOpenChat;
   final VoidCallback onRequestPayment;
   final VoidCallback onOpenPayment;
+  final VoidCallback onOpenFeedback;
 
   const _TaskActionsCard({
     required this.requestingPayment,
@@ -622,9 +694,14 @@ class _TaskActionsCard extends StatelessWidget {
     required this.hasPendingPaymentRequest,
     required this.isExecutorOwner,
     required this.isCustomerOwner,
+    required this.canLeaveFeedback,
+    required this.feedbackAlreadyLeft,
+    required this.feedbackTargetName,
+    required this.feedbackTargetRole,
     required this.onOpenChat,
     required this.onRequestPayment,
     required this.onOpenPayment,
+    required this.onOpenFeedback,
   });
 
   @override

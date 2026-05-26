@@ -1,10 +1,9 @@
-// lib/pages/account_page.dart
-
-import 'package:flutter/cupertino.dart';
+﻿import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/pocketbase_file_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
@@ -64,54 +63,24 @@ class _AccountPageState extends State<AccountPage> {
     return null;
   }
 
-  String? _firstFileName(dynamic value) {
-    if (value == null) return null;
-
-    if (value is String) {
-      final trimmed = value.trim();
-      return trimmed.isEmpty ? null : trimmed;
-    }
-
-    if (value is List && value.isNotEmpty) {
-      final first = value.first;
-      if (first is String) {
-        final trimmed = first.trim();
-        return trimmed.isEmpty ? null : trimmed;
-      }
-    }
-
-    return null;
-  }
-
-  String? _fileUrl({
-    required String collectionName,
-    required String recordId,
-    required dynamic fileValue,
-  }) {
-    final fileName = _firstFileName(fileValue);
-    if (fileName == null) return null;
-
-    if (fileName.startsWith('http://') || fileName.startsWith('https://')) {
-      return fileName;
-    }
-
-    final encodedName = Uri.encodeComponent(fileName);
-
-    return '${PocketBaseService.baseUrl}/api/files/$collectionName/$recordId/$encodedName';
-  }
-
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -131,6 +100,51 @@ class _AccountPageState extends State<AccountPage> {
     return _roleFallbackByEmail(email);
   }
 
+  String _roleLabel(String role) {
+    switch (role) {
+      case 'customer':
+        return 'Заказчик';
+      case 'support':
+        return 'Поддержка';
+      case 'executor':
+        return 'Исполнитель';
+      default:
+        return 'Пользователь';
+    }
+  }
+
+  String _feedbackTypeLabel(String? type) {
+    switch (type) {
+      case 'customer_to_executor':
+        return 'Отзыв заказчика';
+      case 'executor_to_customer':
+        return 'Отзыв исполнителя';
+      default:
+        return 'Отзыв';
+    }
+  }
+
+  Future<Map<String, dynamic>?> _getRecordData(
+    String collection,
+    String? id,
+  ) async {
+    if (id == null || id.isEmpty) return null;
+
+    try {
+      final record = await PocketBaseService.instance.pb
+          .collection(collection)
+          .getOne(id);
+
+      return {
+        'id': record.id,
+        'created': record.get<String>('created') ?? '',
+        ...record.data,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _loadDrawerData(String currentUserId) async {
     final user = await PocketBaseService.instance.pb
         .collection('users')
@@ -140,7 +154,7 @@ class _AccountPageState extends State<AccountPage> {
     _drawerName =
         user.data['name'] as String? ?? user.data['email'] as String? ?? 'User';
 
-    _drawerAvatarUrl = _fileUrl(
+    _drawerAvatarUrl = PocketBaseFileService.fileUrl(
       collectionName: 'users',
       recordId: user.id,
       fileValue: user.data['photo'],
@@ -171,7 +185,7 @@ class _AccountPageState extends State<AccountPage> {
       _profileCreated = user.get<String>('created') ?? '';
       _profile = Map<String, dynamic>.from(user.data);
 
-      _profileAvatarUrl = _fileUrl(
+      _profileAvatarUrl = PocketBaseFileService.fileUrl(
         collectionName: 'users',
         recordId: user.id,
         fileValue: user.data['photo'],
@@ -194,38 +208,76 @@ class _AccountPageState extends State<AccountPage> {
     _avgRating = 0;
     _totalFeedbacks = 0;
 
-    final ordersResult = await pb
-        .collection('orders')
-        .getList(page: 1, perPage: 200);
-
-    final executorOrderIds = <String>{};
-
-    for (final order in ordersResult.items) {
-      final executorId = _relationId(order.data['executor_id']);
-
-      if (executorId == profileUserId) {
-        executorOrderIds.add(order.id);
-      }
-    }
-
-    if (executorOrderIds.isEmpty) return;
-
     final feedbacksResult = await pb
         .collection('feedbacks')
         .getList(page: 1, perPage: 200);
 
+    final ordersResult = await pb
+        .collection('orders')
+        .getList(page: 1, perPage: 200);
+
+    final ordersById = <String, Map<String, dynamic>>{};
+    final legacyExecutorOrderIds = <String>{};
+
+    for (final order in ordersResult.items) {
+      final data = {
+        'id': order.id,
+        'created': order.get<String>('created') ?? '',
+        ...order.data,
+      };
+
+      ordersById[order.id] = data;
+
+      final executorId = _relationId(order.data['executor_id']);
+      if (executorId == profileUserId) {
+        legacyExecutorOrderIds.add(order.id);
+      }
+    }
+
     for (final feedback in feedbacksResult.items) {
+      final reviewedUserId = _relationId(feedback.data['reviewed_user_id']);
       final orderId = _relationId(feedback.data['order_id']);
 
-      if (orderId == null || !executorOrderIds.contains(orderId)) {
-        continue;
+      final isNewFormat = reviewedUserId != null;
+      final isForThisProfile = reviewedUserId == profileUserId;
+      final isLegacyForExecutor =
+          !isNewFormat && orderId != null && legacyExecutorOrderIds.contains(orderId);
+
+      if (!isForThisProfile && !isLegacyForExecutor) continue;
+
+      final order = orderId == null ? null : ordersById[orderId];
+
+      String? reviewerId = _relationId(feedback.data['reviewer_id']);
+
+      if (reviewerId == null && order != null) {
+        reviewerId = _relationId(order['customer_id']);
       }
+
+      final reviewer = await _getRecordData('users', reviewerId);
+
+      final reviewerName =
+          reviewer?['name'] as String? ??
+          reviewer?['email'] as String? ??
+          'Пользователь';
+
+      final reviewerRole = reviewer == null
+          ? 'Пользователь'
+          : _roleLabel(_roleFromUser(reviewer));
+
+      final orderTitle =
+          order?['task_description'] as String? ?? 'Заказ без описания';
+
+      final type = feedback.data['type']?.toString();
 
       _feedbacks.add({
         'id': feedback.id,
         'estimate': feedback.data['estimate'],
         'text': feedback.data['text'] as String? ?? '',
         'created': feedback.get<String>('created') ?? '',
+        'reviewer_name': reviewerName,
+        'reviewer_role': reviewerRole,
+        'type_label': _feedbackTypeLabel(type),
+        'order_title': orderTitle,
       });
     }
 
@@ -243,24 +295,10 @@ class _AccountPageState extends State<AccountPage> {
     _totalFeedbacks = _feedbacks.length;
 
     if (_totalFeedbacks > 0) {
-      _avgRating =
-          _feedbacks
+      _avgRating = _feedbacks
               .map((f) => (f['estimate'] as num?)?.toDouble() ?? 0)
               .reduce((a, b) => a + b) /
           _totalFeedbacks;
-    }
-  }
-
-  String _roleLabel(String role) {
-    switch (role) {
-      case 'customer':
-        return 'Заказчик';
-      case 'support':
-        return 'Поддержка';
-      case 'executor':
-        return 'Исполнитель';
-      default:
-        return 'Пользователь';
     }
   }
 
@@ -326,137 +364,156 @@ class _AccountPageState extends State<AccountPage> {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: AppColors.background,
-      drawer:
-          (_isSelf && _drawerRole != null && _drawerName != null)
-              ? AppDrawer(
-                role: _drawerRole!,
-                displayName: _drawerName!,
-                avatarUrl: _drawerAvatarUrl,
-              )
-              : null,
+      drawer: (_isSelf && _drawerRole != null && _drawerName != null)
+          ? AppDrawer(
+              role: _drawerRole!,
+              displayName: _drawerName!,
+              avatarUrl: _drawerAvatarUrl,
+            )
+          : null,
       body: AppScreenBackground(
         child: SafeArea(
-          child:
-              _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? AppErrorState(message: _error!, onRetry: _loadAccountData)
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+                  ? AppErrorState(
+                      message: _error!,
+                      onRetry: _loadAccountData,
+                    )
                   : Column(
-                    children: [
-                      AppTopBar(
-                        title: title,
-                        subtitle:
-                            _isSelf
-                                ? 'Данные аккаунта и отзывы'
-                                : 'Публичная карточка пользователя',
-                        onMenu:
-                            _isSelf
-                                ? () => _scaffoldKey.currentState?.openDrawer()
-                                : null,
-                        onBack: _isSelf ? null : _goBack,
-                        onRefresh: _loadAccountData,
-                      ),
-                      Expanded(
-                        child: RefreshIndicator(
+                      children: [
+                        AppTopBar(
+                          title: title,
+                          subtitle: _isSelf
+                              ? 'Данные аккаунта, рейтинг и отзывы'
+                              : 'Публичная карточка пользователя',
+                          onMenu: _isSelf
+                              ? () => _scaffoldKey.currentState?.openDrawer()
+                              : null,
+                          onBack: _isSelf ? null : _goBack,
                           onRefresh: _loadAccountData,
-                          child: ListView(
-                            physics: const BouncingScrollPhysics(
-                              parent: AlwaysScrollableScrollPhysics(),
-                            ),
-                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-                            children: [
-                              _ProfileMainCard(
-                                profile: _profile!,
-                                avatarUrl: _profileAvatarUrl,
-                                createdAt: _profileCreated,
-                                isSelf: _isSelf,
-                                ageText: _formatAge(
-                                  _profile!['birth_date'] as String?,
-                                ),
-                                roleLabel: _roleLabel(
-                                  _profile!['role'] as String? ?? 'executor',
-                                ),
-                                onEdit:
-                                    _isSelf
-                                        ? () async {
+                        ),
+                        Expanded(
+                          child: RefreshIndicator(
+                            onRefresh: _loadAccountData,
+                            child: ListView(
+                              physics: const BouncingScrollPhysics(
+                                parent: AlwaysScrollableScrollPhysics(),
+                              ),
+                              padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                              children: [
+                                _ProfileHeroCard(
+                                  profile: _profile!,
+                                  avatarUrl: _profileAvatarUrl,
+                                  avgRating: _avgRating,
+                                  totalFeedbacks: _totalFeedbacks,
+                                  ageText: _formatAge(
+                                    _profile!['birth_date'] as String?,
+                                  ),
+                                  roleLabel: _roleLabel(
+                                    _profile!['role'] as String? ?? 'executor',
+                                  ),
+                                  isSelf: _isSelf,
+                                  onEdit: _isSelf
+                                      ? () async {
                                           await context.push('/account/edit');
                                           await _loadAccountData();
                                         }
-                                        : null,
-                              ),
-                              const SizedBox(height: 12),
-                              _ProfileInfoCard(
-                                description: _nonEmptyOrDash(
-                                  _profile!['description'],
+                                      : null,
                                 ),
-                                birthDate: _formatDate(
-                                  _profile!['birth_date'] as String?,
+                                const SizedBox(height: 12),
+                                _ProfileStatsCard(
+                                  avgRating: _avgRating,
+                                  totalFeedbacks: _totalFeedbacks,
+                                  roleLabel: _roleLabel(
+                                    _profile!['role'] as String? ?? 'executor',
+                                  ),
                                 ),
-                                createdAt: _formatDate(_profileCreated),
-                                email: _nonEmptyOrDash(_profile!['email']),
-                              ),
-                              const SizedBox(height: 12),
-                              _FeedbackSummaryCard(
-                                avgRating: _avgRating,
-                                totalFeedbacks: _totalFeedbacks,
-                              ),
-                              const SizedBox(height: 12),
-                              AppSectionHeader(
-                                title: 'Отзывы',
-                                count: _feedbacks.length,
-                              ),
-                              const SizedBox(height: 8),
-                              if (_feedbacks.isEmpty)
-                                const AppEmptyState(
-                                  icon: CupertinoIcons.star,
-                                  title: 'Отзывов пока нет',
-                                  subtitle:
-                                      'Отзывы появятся после завершённых заказов.',
-                                )
-                              else
-                                ..._feedbacks.map(
-                                  (feedback) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: _FeedbackCard(
-                                      estimate:
-                                          (feedback['estimate'] as num?)
-                                              ?.toInt() ??
-                                          0,
-                                      text: feedback['text'] as String? ?? '',
-                                      date: _formatDate(
-                                        feedback['created'] as String?,
+                                const SizedBox(height: 12),
+                                _ProfileInfoCard(
+                                  description: _nonEmptyOrDash(
+                                    _profile!['description'],
+                                  ),
+                                  birthDate: _formatDate(
+                                    _profile!['birth_date'] as String?,
+                                  ),
+                                  createdAt: _formatDate(_profileCreated),
+                                  email: _nonEmptyOrDash(_profile!['email']),
+                                ),
+                                const SizedBox(height: 12),
+                                AppSectionHeader(
+                                  title: 'Отзывы',
+                                  count: _feedbacks.length,
+                                ),
+                                const SizedBox(height: 8),
+                                if (_feedbacks.isEmpty)
+                                  const AppEmptyState(
+                                    icon: CupertinoIcons.star,
+                                    title: 'Отзывов пока нет',
+                                    subtitle:
+                                        'Отзывы появятся после оплаченных заказов.',
+                                  )
+                                else
+                                  ..._feedbacks.map(
+                                    (feedback) => Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: _FeedbackCard(
+                                        estimate:
+                                            (feedback['estimate'] as num?)
+                                                    ?.toInt() ??
+                                                0,
+                                        text: feedback['text'] as String? ?? '',
+                                        date: _formatDate(
+                                          feedback['created'] as String?,
+                                        ),
+                                        reviewerName:
+                                            feedback['reviewer_name']
+                                                    as String? ??
+                                                'Пользователь',
+                                        reviewerRole:
+                                            feedback['reviewer_role']
+                                                    as String? ??
+                                                'Пользователь',
+                                        typeLabel:
+                                            feedback['type_label'] as String? ??
+                                                'Отзыв',
+                                        orderTitle:
+                                            feedback['order_title']
+                                                    as String? ??
+                                                'Заказ',
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
         ),
       ),
     );
   }
 }
 
-class _ProfileMainCard extends StatelessWidget {
+class _ProfileHeroCard extends StatelessWidget {
   final Map<String, dynamic> profile;
   final String? avatarUrl;
-  final String? createdAt;
-  final bool isSelf;
+  final double avgRating;
+  final int totalFeedbacks;
   final String ageText;
   final String roleLabel;
+  final bool isSelf;
   final VoidCallback? onEdit;
 
-  const _ProfileMainCard({
+  const _ProfileHeroCard({
     required this.profile,
     required this.avatarUrl,
-    required this.createdAt,
-    required this.isSelf,
+    required this.avgRating,
+    required this.totalFeedbacks,
     required this.ageText,
     required this.roleLabel,
+    required this.isSelf,
     required this.onEdit,
   });
 
@@ -465,33 +522,44 @@ class _ProfileMainCard extends StatelessWidget {
     final name = profile['name'] as String? ?? 'Пользователь';
 
     return AppSurfaceCard(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          Row(
+          AppProfileAvatar(
+            avatarUrl: avatarUrl,
+            size: 82,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            name.trim().isEmpty ? 'Пользователь' : name,
+            style: AppTextStyles.pageTitle.copyWith(fontSize: 24),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            ageText,
+            style: AppTextStyles.small,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              AppProfileAvatar(avatarUrl: avatarUrl, size: 64),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name.trim().isEmpty ? 'Пользователь' : name,
-                      style: AppTextStyles.sectionTitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(ageText, style: AppTextStyles.small),
-                    const SizedBox(height: 6),
-                    AppStatusPill(
-                      text: roleLabel,
-                      color: AppColors.accent,
-                      icon: CupertinoIcons.person_crop_circle,
-                    ),
-                  ],
-                ),
+              AppStatusPill(
+                text: roleLabel,
+                color: AppColors.accent,
+                icon: CupertinoIcons.person_crop_circle,
+              ),
+              AppStatusPill(
+                text: totalFeedbacks == 0
+                    ? 'нет отзывов'
+                    : '${avgRating.toStringAsFixed(1)} / 5',
+                color: AppColors.accent,
+                icon: CupertinoIcons.star_fill,
               ),
             ],
           ),
@@ -506,6 +574,95 @@ class _ProfileMainCard extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileStatsCard extends StatelessWidget {
+  final double avgRating;
+  final int totalFeedbacks;
+  final String roleLabel;
+
+  const _ProfileStatsCard({
+    required this.avgRating,
+    required this.totalFeedbacks,
+    required this.roleLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Expanded(
+            child: _StatTile(
+              icon: CupertinoIcons.star_fill,
+              label: 'Рейтинг',
+              value: totalFeedbacks == 0 ? '—' : avgRating.toStringAsFixed(1),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _StatTile(
+              icon: CupertinoIcons.chat_bubble_text,
+              label: 'Отзывы',
+              value: totalFeedbacks.toString(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _StatTile(
+              icon: CupertinoIcons.person_crop_circle,
+              label: 'Роль',
+              value: roleLabel,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _StatTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 18, color: AppColors.accent),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: AppTextStyles.cardTitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: AppTextStyles.caption,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -534,7 +691,11 @@ class _ProfileInfoCard extends StatelessWidget {
         children: [
           AppSectionHeader(title: 'Информация'),
           const SizedBox(height: 12),
-          _InfoRow(icon: CupertinoIcons.mail, label: 'Email', value: email),
+          _InfoRow(
+            icon: CupertinoIcons.mail,
+            label: 'Email',
+            value: email,
+          ),
           _InfoRow(
             icon: CupertinoIcons.calendar,
             label: 'Дата рождения',
@@ -557,78 +718,23 @@ class _ProfileInfoCard extends StatelessWidget {
   }
 }
 
-class _FeedbackSummaryCard extends StatelessWidget {
-  final double avgRating;
-  final int totalFeedbacks;
-
-  const _FeedbackSummaryCard({
-    required this.avgRating,
-    required this.totalFeedbacks,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSurfaceCard(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.accentSoft,
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Text(
-              avgRating.toStringAsFixed(1),
-              style: AppTextStyles.sectionTitle.copyWith(
-                color: AppColors.accent,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Рейтинг', style: AppTextStyles.cardTitle),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    ...List.generate(
-                      5,
-                      (index) => Icon(
-                        index < avgRating.round()
-                            ? Icons.star_rounded
-                            : Icons.star_border_rounded,
-                        color: AppColors.accent,
-                        size: 18,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text('($totalFeedbacks)', style: AppTextStyles.caption),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _FeedbackCard extends StatelessWidget {
   final int estimate;
   final String text;
   final String date;
+  final String reviewerName;
+  final String reviewerRole;
+  final String typeLabel;
+  final String orderTitle;
 
   const _FeedbackCard({
     required this.estimate,
     required this.text,
     required this.date,
+    required this.reviewerName,
+    required this.reviewerRole,
+    required this.typeLabel,
+    required this.orderTitle,
   });
 
   @override
@@ -638,11 +744,34 @@ class _FeedbackCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            text.trim().isEmpty ? 'Без текста' : text,
-            style: AppTextStyles.body.copyWith(color: AppColors.text),
+          Row(
+            children: [
+              const AppProfileAvatar(size: 38),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reviewerName,
+                      style: AppTextStyles.cardTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$reviewerRole · $typeLabel',
+                      style: AppTextStyles.caption,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Text(date, style: AppTextStyles.caption),
+            ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Row(
             children: [
               ...List.generate(
@@ -651,13 +780,30 @@ class _FeedbackCard extends StatelessWidget {
                   index < estimate
                       ? Icons.star_rounded
                       : Icons.star_border_rounded,
-                  size: 18,
+                  size: 19,
                   color: AppColors.accent,
                 ),
               ),
               const Spacer(),
-              Text(date, style: AppTextStyles.caption),
+              Text(
+                '$estimate / 5',
+                style: AppTextStyles.caption,
+              ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            text.trim().isEmpty ? 'Без текста' : text,
+            style: AppTextStyles.body.copyWith(color: AppColors.text),
+          ),
+          const SizedBox(height: 10),
+          Container(height: 1, color: AppColors.divider),
+          const SizedBox(height: 10),
+          Text(
+            orderTitle.trim().isEmpty ? 'Заказ без описания' : orderTitle,
+            style: AppTextStyles.caption,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -684,17 +830,20 @@ class _InfoRow extends StatelessWidget {
       padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
       margin: EdgeInsets.only(bottom: isLast ? 0 : 10),
       decoration: BoxDecoration(
-        border:
-            isLast
-                ? null
-                : const Border(bottom: BorderSide(color: AppColors.divider)),
+        border: isLast
+            ? null
+            : const Border(
+                bottom: BorderSide(color: AppColors.divider),
+              ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, size: 18, color: AppColors.textMuted),
           const SizedBox(width: 10),
-          Expanded(child: Text(label, style: AppTextStyles.small)),
+          Expanded(
+            child: Text(label, style: AppTextStyles.small),
+          ),
           const SizedBox(width: 10),
           Flexible(
             child: Text(

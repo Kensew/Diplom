@@ -9,6 +9,7 @@ import '../pages/customer_create_order_page.dart';
 import '../pages/customer_dashboard_page.dart';
 import '../pages/customer_orders_page.dart';
 import '../pages/edit_profile_page.dart';
+import '../pages/feedback_create_page.dart';
 import '../pages/executor_orders_page.dart';
 import '../pages/log_in_page.dart';
 import '../pages/log_up_page.dart';
@@ -19,7 +20,6 @@ import '../pages/support_create_page.dart';
 import '../pages/support_orders_page.dart';
 import '../pages/support_page.dart';
 import '../pages/support_communication_page.dart' as support_chat;
-import '../pages/task_create_page.dart';
 import '../pages/task_details_page.dart';
 import '../pages/tasks_check_page.dart';
 import '../pages/tasks_communication_page.dart' as task_chat;
@@ -142,13 +142,17 @@ class AppRouter {
               return TaskCheckPage(taskId: taskId);
             },
           ),
-          GoRoute(
-            path: 'create',
-            builder: (context, state) => const TaskCreatePage(),
-          ),
         ],
       ),
 
+
+      GoRoute(
+        path: '/feedbacks/task/:taskId',
+        builder: (context, state) {
+          final taskId = state.pathParameters['taskId']!;
+          return FeedbackCreatePage(taskId: taskId);
+        },
+      ),
       GoRoute(
         path: '/support',
         builder: (context, state) => const SupportPage(),

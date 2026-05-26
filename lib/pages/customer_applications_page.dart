@@ -574,6 +574,23 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
         );
   }
 
+  void _openTaskDetails(_ReqItem item) {
+    final taskId = item.taskId;
+    if (taskId == null || taskId.isEmpty) return;
+
+    context.push('/tasks/details/$taskId');
+  }
+
+  Future<void> _openFeedbackForItem(_ReqItem item) async {
+    final taskId = item.taskId;
+    if (taskId == null || taskId.isEmpty) return;
+
+    final result = await context.push('/feedbacks/task/$taskId');
+
+    if (result == true) {
+      await _loadAll();
+    }
+  }
   Future<void> _rejectAll() async {
     if (_busyItemId != null) return;
 
@@ -1044,6 +1061,10 @@ class _RequestCard extends StatelessWidget {
   });
 
   bool get _pending => item.status == 'pending';
+  bool get _approved => item.status == 'approved';
+  bool get _hasTask => item.taskId != null && item.taskId!.isNotEmpty;
+  bool get _canLeaveFeedback =>
+      item.type == _ReqType.payment && _approved && _hasTask;
 
   @override
   Widget build(BuildContext context) {
