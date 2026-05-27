@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
@@ -424,21 +424,56 @@ class _AccountPageState extends State<AccountPage> {
     return value.toDouble();
   }
 
+  bool _isPaidStatus(String value) {
+    final normalized = value.trim().toLowerCase();
+
+    return normalized == 'paid' ||
+        normalized == 'approved' ||
+        normalized == 'done' ||
+        normalized == 'completed';
+  }
+
+  double _averageOrZero(List<double> values) {
+    if (values.isEmpty) return 0;
+
+    return values.reduce((a, b) => a + b) / values.length;
+  }
+
+  double? _positiveNumber(dynamic value) {
+    final number = (value as num?)?.toDouble();
+
+    if (number == null || number <= 0) return null;
+
+    return number;
+  }
+
   Future<void> _loadRadarStats(String profileUserId) async {
     final pb = PocketBaseService.instance.pb;
 
     final tasksResult = await pb
         .collection('tasks')
         .getList(page: 1, perPage: 200);
+
     final ordersResult = await pb
         .collection('orders')
         .getList(page: 1, perPage: 200);
+
+    final applicationsResult = await pb
+        .collection('applications')
+        .getList(page: 1, perPage: 200);
+
     final paymentStatusesResult = await pb
         .collection('payment_statuses')
         .getList(page: 1, perPage: 200);
 
+    final paymentRequestsResult = await pb
+        .collection('payment_requests')
+        .getList(page: 1, perPage: 200);
+
     final ordersById = <String, Map<String, dynamic>>{};
     final paymentStatusById = <String, String>{};
+    final paidTaskIdsByRequest = <String>{};
+    final complexityByOrderExecutor = <String, int>{};
 
     for (final order in ordersResult.items) {
       ordersById[order.id] = {
@@ -448,9 +483,31 @@ class _AccountPageState extends State<AccountPage> {
       };
     }
 
+    for (final app in applicationsResult.items) {
+      final orderId = _relationId(app.data['order_id']);
+      final executorId = _relationId(app.data['executor_id']);
+      final proposed = (app.data['complexity_proposed'] as num?)?.toInt();
+
+      if (orderId == null || executorId == null || proposed == null) continue;
+
+      complexityByOrderExecutor['$orderId|$executorId'] =
+          proposed.clamp(1, 5).toInt();
+    }
+
     for (final status in paymentStatusesResult.items) {
       paymentStatusById[status.id] =
           (status.data['name'] as String? ?? '').trim().toLowerCase();
+    }
+
+    for (final request in paymentRequestsResult.items) {
+      final status = (request.data['status'] as String? ?? '').trim();
+
+      if (!_isPaidStatus(status)) continue;
+
+      final taskId = _relationId(request.data['task_id']);
+      if (taskId != null) {
+        paidTaskIdsByRequest.add(taskId);
+      }
     }
 
     final paidTasks = <Map<String, dynamic>>[];
@@ -462,18 +519,33 @@ class _AccountPageState extends State<AccountPage> {
       final executorId = _relationId(task.data['executor_id']);
       final customerId = _relationId(order?['customer_id']);
 
-      if (executorId != profileUserId && customerId != profileUserId) continue;
+      final isParticipant =
+          executorId == profileUserId || customerId == profileUserId;
+
+      if (!isParticipant) continue;
 
       final paymentStatusId = _relationId(task.data['payment_status_id']);
       final paymentStatus =
-          paymentStatusId == null ? '' : paymentStatusById[paymentStatusId];
+          paymentStatusId == null
+              ? ''
+              : paymentStatusById[paymentStatusId] ?? '';
 
-      final isPaid = paymentStatus == 'paid' || paymentStatus == 'approved';
+      final isPaid =
+          _isPaidStatus(paymentStatus) ||
+          paidTaskIdsByRequest.contains(task.id);
+
       if (!isPaid) continue;
+
+      final appComplexity =
+          orderId == null || executorId == null
+              ? null
+              : complexityByOrderExecutor['$orderId|$executorId'];
 
       paidTasks.add({
         'id': task.id,
         'created': task.get<String>('created') ?? '',
+        'order': order,
+        'app_complexity': appComplexity,
         ...task.data,
       });
     }
@@ -497,44 +569,60 @@ class _AccountPageState extends State<AccountPage> {
       return;
     }
 
-    final ordersScore = _clampPercent((paidCount / 20) * 100);
     final qualityScore = _clampPercent((_avgRating / 5) * 100);
+    final ordersScore = _clampPercent((paidCount / 3) * 100);
 
-    double speedSum = 0;
-    double complexitySum = 0;
-    double priceSum = 0;
+    final speedScores = <double>[];
+    final complexityScores = <double>[];
+    final priceValues = <double>[];
 
     for (final task in recentPaidTasks) {
-      final estimated = (task['estimated_time'] as num?)?.toDouble() ?? 0;
-      final spent = (task['time_spent'] as num?)?.toDouble() ?? 0;
+      final order = task['order'] as Map<String, dynamic>?;
 
-      double speedScore;
+      final estimated = _positiveNumber(task['estimated_time']);
+      final spent = _positiveNumber(task['time_spent']);
 
-      if (estimated <= 0 && spent <= 0) {
-        speedScore = 50;
-      } else if (spent <= 0) {
-        speedScore = 100;
-      } else if (estimated <= 0) {
-        speedScore = 50;
+      if (estimated != null && spent != null) {
+        speedScores.add(_clampPercent((estimated / spent) * 100));
+      } else if (estimated != null && spent == null) {
+        speedScores.add(100);
       } else {
-        speedScore = _clampPercent((estimated / spent) * 100);
+        speedScores.add(50);
       }
 
-      speedSum += speedScore;
+      final taskComplexity = _positiveNumber(task['complexity_final']);
+      final orderComplexity = _positiveNumber(order?['complexity_auto']);
+      final appComplexity = _positiveNumber(task['app_complexity']);
 
-      final complexity = (task['complexity_final'] as num?)?.toDouble() ?? 0;
-      complexitySum += _clampPercent((complexity / 5) * 100);
+      final complexity =
+          taskComplexity ?? orderComplexity ?? appComplexity ?? 3.0;
 
-      final price = (task['payment_amount'] as num?)?.toDouble() ?? 0;
-      priceSum += _clampPercent((price / 50000) * 100);
+      complexityScores.add(_clampPercent((complexity / 5) * 100));
+
+      final taskPrice = _positiveNumber(task['payment_amount']);
+      final orderPrice = _positiveNumber(order?['price']);
+      final price = taskPrice ?? orderPrice;
+
+      if (price != null) {
+        priceValues.add(price);
+      }
     }
+
+    final maxPrice = priceValues.isEmpty ? 0.0 : priceValues.reduce(math.max);
+
+    final priceScores =
+        maxPrice <= 0
+            ? <double>[]
+            : priceValues
+                .map((price) => _clampPercent((price / maxPrice) * 100))
+                .toList();
 
     _radarStats = _ProfileRadarStats(
       orders: ordersScore,
       quality: qualityScore,
-      speed: paidCount == 0 ? 0 : speedSum / paidCount,
-      complexity: paidCount == 0 ? 0 : complexitySum / paidCount,
-      price: paidCount == 0 ? 0 : priceSum / paidCount,
+      speed: _averageOrZero(speedScores),
+      complexity: _averageOrZero(complexityScores),
+      price: _averageOrZero(priceScores),
       paidTasksCount: paidCount,
     );
   }
@@ -592,6 +680,29 @@ class _AccountPageState extends State<AccountPage> {
     }
 
     context.go('/tasks');
+  }
+
+  void _applyUpdatedProfile(Map<String, dynamic> updatedProfile) {
+    setState(() {
+      _profile = updatedProfile;
+      _profileId = updatedProfile['id'] as String? ?? _profileId;
+      _profileCreated = updatedProfile['created'] as String? ?? _profileCreated;
+
+      if (_profileId != null) {
+        _profileAvatarUrl = PocketBaseFileService.fileUrl(
+          collectionName: 'users',
+          recordId: _profileId!,
+          fileValue: updatedProfile['photo'],
+        );
+      }
+
+      _drawerName =
+          updatedProfile['name'] as String? ??
+          updatedProfile['email'] as String? ??
+          _drawerName;
+      _drawerRole = _roleFromUser(updatedProfile);
+      _drawerAvatarUrl = _profileAvatarUrl;
+    });
   }
 
   @override
@@ -655,7 +766,19 @@ class _AccountPageState extends State<AccountPage> {
                                 onEdit:
                                     _isSelf
                                         ? () async {
-                                          await context.push('/account/edit');
+                                          final result = await context.push(
+                                            '/account/edit',
+                                          );
+
+                                          if (!mounted) return;
+
+                                          if (result is Map) {
+                                            _applyUpdatedProfile(
+                                              Map<String, dynamic>.from(result),
+                                            );
+                                            return;
+                                          }
+
                                           await _loadAccountData();
                                         }
                                         : null,

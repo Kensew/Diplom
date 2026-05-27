@@ -1,5 +1,7 @@
 // lib/pages/edit_profile_page.dart
 
+import 'dart:typed_data';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -32,12 +34,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   bool _isSaving = false;
   bool _loading = true;
-  String? _error;
+  bool _descriptionTouched = false;
+  bool _birthDateTouched = false;
 
+  String? _error;
   String? _role;
   String? _email;
   String? _avatarUrl;
-  String? _userId;
+  String? _createdAt;
 
   @override
   void initState() {
@@ -92,15 +96,21 @@ class _EditProfilePageState extends State<EditProfilePage> {
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -120,6 +130,23 @@ class _EditProfilePageState extends State<EditProfilePage> {
     return _roleFallbackByEmail(email);
   }
 
+  DateTime? _parseBirthDate(dynamic value) {
+    if (value == null) return null;
+
+    final raw = value.toString().trim();
+    if (raw.isEmpty) return null;
+
+    return DateTime.tryParse(raw);
+  }
+
+  bool _isFutureDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final normalized = DateTime(date.year, date.month, date.day);
+
+    return normalized.isAfter(today);
+  }
+
   Future<void> _loadCurrentProfile() async {
     setState(() {
       _loading = true;
@@ -136,7 +163,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
       final user = await service.pb.collection('users').getOne(userId);
 
-      _userId = user.id;
+      _createdAt = user.get<String>('created') ?? '';
       _nameCtrl.text = user.data['name'] as String? ?? '';
       _descCtrl.text = user.data['description'] as String? ?? '';
       _role = _roleFromUser(user.data);
@@ -148,13 +175,18 @@ class _EditProfilePageState extends State<EditProfilePage> {
         fileValue: user.data['photo'],
       );
 
-      final birthRaw = user.data['birth_date'] as String?;
-      final birth = DateTime.tryParse(birthRaw ?? '');
+      final birth = _parseBirthDate(user.data['birth_date']);
 
       if (birth != null) {
         _birthDate = birth.toLocal();
         _dateCtrl.text = _dateFmt.format(_birthDate!);
+      } else {
+        _birthDate = null;
+        _dateCtrl.clear();
       }
+
+      _descriptionTouched = false;
+      _birthDateTouched = false;
     } catch (e) {
       _error = 'Ошибка загрузки профиля: $e';
     } finally {
@@ -180,34 +212,29 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
     final picked = await showDatePicker(
       context: context,
       initialDate: _birthDate ?? DateTime(now.year - 18, now.month, now.day),
       firstDate: DateTime(1900),
-      lastDate: now,
+      lastDate: today,
     );
 
     if (picked == null || !mounted) return;
 
-    setState(() {
-      _birthDate = picked;
-      _dateCtrl.text = _dateFmt.format(picked);
-    });
-  }
-
-  int? _calculateAge(DateTime? birthDate) {
-    if (birthDate == null) return null;
-
-    final now = DateTime.now();
-    var age = now.year - birthDate.year;
-
-    if (now.month < birthDate.month ||
-        (now.month == birthDate.month && now.day < birthDate.day)) {
-      age--;
+    if (_isFutureDate(picked)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Дата рождения не может быть в будущем')),
+      );
+      return;
     }
 
-    return age;
+    setState(() {
+      _birthDate = picked;
+      _birthDateTouched = true;
+      _dateCtrl.text = _dateFmt.format(picked);
+    });
   }
 
   Future<void> _saveProfile() async {
@@ -220,44 +247,93 @@ class _EditProfilePageState extends State<EditProfilePage> {
       return;
     }
 
+    if (_birthDate != null && _isFutureDate(_birthDate!)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Дата рождения не может быть в будущем')),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
       final service = PocketBaseService.instance;
+      final pb = service.pb;
       final userId = service.currentUserId;
 
       if (userId == null) {
         throw 'Неавторизован';
       }
 
-      final files = <http.MultipartFile>[];
+      final existingUser = await pb.collection('users').getOne(userId);
+      final existingDescription =
+          existingUser.data['description'] as String? ?? '';
+      final existingBirthDate = existingUser.data['birth_date'];
 
-      if (_pickedImage != null) {
-        final bytes = await _pickedImage!.readAsBytes();
+      final description =
+          _descriptionTouched ? _descCtrl.text.trim() : existingDescription;
 
-        files.add(
-          http.MultipartFile.fromBytes(
-            'photo',
-            bytes,
-            filename: _pickedImage!.name,
-          ),
-        );
+      final body = <String, dynamic>{'name': name, 'description': description};
+
+      if (_birthDateTouched && _birthDate != null) {
+        body['birth_date'] = _birthDate!.toIso8601String();
       }
 
-      await service.pb
-          .collection('users')
-          .update(
-            userId,
-            body: {
-              'name': name,
-              'description': _descCtrl.text.trim(),
-              'birth_date': _birthDate?.toIso8601String(),
-              'age': _calculateAge(_birthDate),
-            },
-            files: files,
-          );
+      if (_pickedImage == null) {
+        await pb.collection('users').update(userId, body: body);
+      } else {
+        final bytes = await _pickedImage!.readAsBytes();
 
-      await service.refreshUser();
+        await pb
+            .collection('users')
+            .update(
+              userId,
+              body: body,
+              files: [
+                http.MultipartFile.fromBytes(
+                  'photo',
+                  bytes,
+                  filename: _pickedImage!.name,
+                ),
+              ],
+            );
+      }
+
+      final freshUser = await pb.collection('users').getOne(userId);
+
+      final token = pb.authStore.token;
+      if (token.isNotEmpty) {
+        pb.authStore.save(token, freshUser);
+      }
+
+      _createdAt = freshUser.get<String>('created') ?? _createdAt;
+      _email = freshUser.data['email'] as String? ?? _email;
+      _role = _roleFromUser(freshUser.data);
+
+      _nameCtrl.text = name;
+      _descCtrl.text = description;
+
+      final returnedBirthDate =
+          _birthDateTouched
+              ? _birthDate?.toIso8601String()
+              : freshUser.data['birth_date'] ?? existingBirthDate;
+
+      final freshBirth = _parseBirthDate(returnedBirthDate);
+
+      if (freshBirth != null) {
+        _birthDate = freshBirth.toLocal();
+        _dateCtrl.text = _dateFmt.format(_birthDate!);
+      }
+
+      _avatarUrl = _fileUrl(
+        collectionName: 'users',
+        recordId: freshUser.id,
+        fileValue: freshUser.data['photo'],
+      );
+
+      _pickedImage = null;
+      _descriptionTouched = false;
+      _birthDateTouched = false;
 
       if (!mounted) return;
 
@@ -265,7 +341,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Профиль сохранён')));
 
-      context.pop(true);
+      context.pop({
+        'id': freshUser.id,
+        'created': freshUser.get<String>('created') ?? _createdAt ?? '',
+        ...freshUser.data,
+        'name': name,
+        'description': description,
+        if (returnedBirthDate != null) 'birth_date': returnedBirthDate,
+      });
     } catch (e) {
       if (!mounted) return;
 
@@ -285,6 +368,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
     } else {
       context.go('/account');
     }
+  }
+
+  String? get _avatarPreviewUrl {
+    if (_pickedImage != null) return null;
+    return _avatarUrl;
   }
 
   @override
@@ -338,6 +426,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
                               dateCtrl: _dateCtrl,
                               saving: _isSaving,
                               onPickDate: _pickDate,
+                              onDescriptionChanged: (_) {
+                                _descriptionTouched = true;
+                              },
                             ),
                             const SizedBox(height: 12),
                             _SaveCard(saving: _isSaving, onSave: _saveProfile),
@@ -349,11 +440,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
         ),
       ),
     );
-  }
-
-  String? get _avatarPreviewUrl {
-    if (_pickedImage != null) return null;
-    return _avatarUrl;
   }
 }
 
@@ -414,7 +500,7 @@ class _AvatarPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (pickedImage != null) {
-      return FutureBuilder<List<int>>(
+      return FutureBuilder<Uint8List>(
         future: pickedImage!.readAsBytes(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
@@ -427,7 +513,7 @@ class _AvatarPreview extends StatelessWidget {
 
           return ClipOval(
             child: Image.memory(
-              snapshot.data! as dynamic,
+              snapshot.data!,
               width: 84,
               height: 84,
               fit: BoxFit.cover,
@@ -447,6 +533,7 @@ class _ProfileFormCard extends StatelessWidget {
   final TextEditingController dateCtrl;
   final bool saving;
   final VoidCallback onPickDate;
+  final ValueChanged<String> onDescriptionChanged;
 
   const _ProfileFormCard({
     required this.nameCtrl,
@@ -454,6 +541,7 @@ class _ProfileFormCard extends StatelessWidget {
     required this.dateCtrl,
     required this.saving,
     required this.onPickDate,
+    required this.onDescriptionChanged,
   });
 
   @override
@@ -494,6 +582,7 @@ class _ProfileFormCard extends StatelessWidget {
             enabled: !saving,
             minLines: 4,
             maxLines: 8,
+            onChanged: onDescriptionChanged,
             style: AppTextStyles.body.copyWith(color: AppColors.text),
             decoration: const InputDecoration(
               labelText: 'Описание',
