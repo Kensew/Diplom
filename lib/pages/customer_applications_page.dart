@@ -298,7 +298,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       final userId = service.currentUserId;
 
       if (userId == null) {
-        throw 'Неавторизован';
+        throw 'Р СњР ВµР В°Р Р†РЎвЂљР С•РЎР‚Р С‘Р В·Р С•Р Р†Р В°Р Р…';
       }
 
       final user = await pb.collection('users').getOne(userId);
@@ -329,7 +329,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
       _items = loaded;
     } catch (e) {
-      _error = 'Не удалось загрузить заявки и оплаты: $e';
+      _error = 'Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С‘РЎвЂљРЎРЉ Р В·Р В°РЎРЏР Р†Р С”Р С‘ Р С‘ Р С•Р С—Р В»Р В°РЎвЂљРЎвЂ№: $e';
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -357,6 +357,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       if (customerId != userId) continue;
 
       final executor = await _getRecordData('users', executorId);
+      final taskId = orderId == null ? null : await _taskIdForOrder(orderId);
       final complexityAuto = (order['complexity_auto'] as num?)?.toInt();
       final complexityProposed =
           (app.data['complexity_proposed'] as num?)?.toInt() ?? complexityAuto;
@@ -366,11 +367,11 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
         _ReqItem(
           id: app.id,
           type: _ReqType.application,
-          title: order['task_description'] as String? ?? '—',
+          title: order['task_description'] as String? ?? 'РІР‚вЂќ',
           actorName:
               executor?['name'] as String? ??
               executor?['email'] as String? ??
-              'Исполнитель',
+              'Р ВРЎРѓР С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»РЎРЉ',
           actorPhoto: _userPhotoUrl(executor),
           status: _status(app.data['status']),
           createdAt:
@@ -379,6 +380,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
           amount: (order['price'] as num?)?.toDouble(),
           orderId: orderId,
           executorId: executorId,
+          taskId: taskId,
           complexityAuto: complexityAuto,
           complexityProposed: complexityProposed,
           complexityReason: complexityReason,
@@ -419,11 +421,11 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
         _ReqItem(
           id: payment.id,
           type: _ReqType.payment,
-          title: order['task_description'] as String? ?? '—',
+          title: order['task_description'] as String? ?? 'РІР‚вЂќ',
           actorName:
               requestedBy?['name'] as String? ??
               requestedBy?['email'] as String? ??
-              'Исполнитель',
+              'Р ВРЎРѓР С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»РЎРЉ',
           actorPhoto: _userPhotoUrl(requestedBy),
           status: _status(payment.data['status']),
           createdAt:
@@ -468,7 +470,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
       setState(() {
         _busyItemId = null;
-        _error = 'Ошибка открытия оплаты: $e';
+        _error = 'Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р С•РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљР С‘РЎРЏ Р С•Р С—Р В»Р В°РЎвЂљРЎвЂ№: $e';
       });
     }
   }
@@ -497,7 +499,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
       setState(() {
         _busyItemId = null;
-        _error = 'Ошибка обработки заявки: $e';
+        _error = 'Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р С•Р В±РЎР‚Р В°Р В±Р С•РЎвЂљР С”Р С‘ Р В·Р В°РЎРЏР Р†Р С”Р С‘: $e';
       });
     }
   }
@@ -515,14 +517,14 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     if (!accept) return;
 
     if (item.orderId == null || item.executorId == null) {
-      throw 'Нет orderId или executorId';
+      throw 'Р СњР ВµРЎвЂљ orderId Р С‘Р В»Р С‘ executorId';
     }
 
     final order = await _getRecordData('orders', item.orderId);
     final currentExecutorId = _relationId(order?['executor_id']);
 
     if (currentExecutorId != null && currentExecutorId != item.executorId) {
-      throw 'Заказ уже назначен другому исполнителю';
+      throw 'Р вЂ”Р В°Р С”Р В°Р В· РЎС“Р В¶Р Вµ Р Р…Р В°Р В·Р Р…Р В°РЎвЂЎР ВµР Р… Р Т‘РЎР‚РЎС“Р С–Р С•Р СРЎС“ Р С‘РЎРѓР С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»РЎР‹';
     }
 
     await pb
@@ -630,18 +632,18 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Отклонить все ожидающие заявки?'),
+            title: const Text('Р С›РЎвЂљР С”Р В»Р С•Р Р…Р С‘РЎвЂљРЎРЉ Р Р†РЎРѓР Вµ Р С•Р В¶Р С‘Р Т‘Р В°РЎР‹РЎвЂ°Р С‘Р Вµ Р В·Р В°РЎРЏР Р†Р С”Р С‘?'),
             content: const Text(
-              'Все pending-заявки и pending-запросы оплаты будут отклонены.',
+              'Р вЂ™РЎРѓР Вµ pending-Р В·Р В°РЎРЏР Р†Р С”Р С‘ Р С‘ pending-Р В·Р В°Р С—РЎР‚Р С•РЎРѓРЎвЂ№ Р С•Р С—Р В»Р В°РЎвЂљРЎвЂ№ Р В±РЎС“Р Т‘РЎС“РЎвЂљ Р С•РЎвЂљР С”Р В»Р С•Р Р…Р ВµР Р…РЎвЂ№.',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Отмена'),
+                child: const Text('Р С›РЎвЂљР СР ВµР Р…Р В°'),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Отклонить'),
+                child: const Text('Р С›РЎвЂљР С”Р В»Р С•Р Р…Р С‘РЎвЂљРЎРЉ'),
               ),
             ],
           ),
@@ -674,7 +676,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
       setState(() {
         _busyItemId = null;
-        _error = 'Ошибка отклонения заявок: $e';
+        _error = 'Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р С•РЎвЂљР С”Р В»Р С•Р Р…Р ВµР Р…Р С‘РЎРЏ Р В·Р В°РЎРЏР Р†Р С•Р С”: $e';
       });
     }
   }
@@ -682,13 +684,13 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
   Future<void> _selectSort() async {
     await showAppBottomSheet(
       context: context,
-      title: 'Сортировка',
+      title: 'Р РЋР С•РЎР‚РЎвЂљР С‘РЎР‚Р С•Р Р†Р С”Р В°',
       child: ListView(
         shrinkWrap: true,
         physics: const BouncingScrollPhysics(),
         children: [
           AppBottomSheetOption(
-            title: 'Новые',
+            title: 'Р СњР С•Р Р†РЎвЂ№Р Вµ',
             selected: _sortNewest,
             onTap: () {
               Navigator.pop(context);
@@ -697,7 +699,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
             },
           ),
           AppBottomSheetOption(
-            title: 'Старые',
+            title: 'Р РЋРЎвЂљР В°РЎР‚РЎвЂ№Р Вµ',
             selected: !_sortNewest,
             onTap: () {
               Navigator.pop(context);
@@ -723,7 +725,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
   }
 
   String _typeLabel(_ReqType type) {
-    return type == _ReqType.application ? 'Заявка на заказ' : 'Запрос оплаты';
+    return type == _ReqType.application ? 'Р вЂ”Р В°РЎРЏР Р†Р С”Р В° Р Р…Р В° Р В·Р В°Р С”Р В°Р В·' : 'Р вЂ”Р В°Р С—РЎР‚Р С•РЎРѓ Р С•Р С—Р В»Р В°РЎвЂљРЎвЂ№';
   }
 
   IconData _typeIcon(_ReqType type) {
@@ -733,31 +735,31 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
   }
 
   String _positiveButtonText(_ReqItem item) {
-    return item.type == _ReqType.payment ? 'Оплатить' : 'Принять';
+    return item.type == _ReqType.payment ? 'Р С›Р С—Р В»Р В°РЎвЂљР С‘РЎвЂљРЎРЉ' : 'Р СџРЎР‚Р С‘Р Р…РЎРЏРЎвЂљРЎРЉ';
   }
 
   String _formatMoney(double? amount) {
     final value = amount ?? 0;
 
     if (value % 1 == 0) {
-      return '${value.toStringAsFixed(0)} ₽';
+      return '${value.toStringAsFixed(0)} РІвЂљР…';
     }
 
-    return '${value.toStringAsFixed(2)} ₽';
+    return '${value.toStringAsFixed(2)} РІвЂљР…';
   }
 
   AppStatusPill _statusPill(_ReqItem item) {
     if (item.status == 'approved') {
       return AppStatusPill.success(
-        item.type == _ReqType.payment ? 'Оплачено' : 'Принято',
+        item.type == _ReqType.payment ? 'Р С›Р С—Р В»Р В°РЎвЂЎР ВµР Р…Р С•' : 'Р СџРЎР‚Р С‘Р Р…РЎРЏРЎвЂљР С•',
       );
     }
 
     if (item.status == 'rejected') {
-      return AppStatusPill.error('Отклонено');
+      return AppStatusPill.error('Р С›РЎвЂљР С”Р В»Р С•Р Р…Р ВµР Р…Р С•');
     }
 
-    return AppStatusPill.pending('Ожидает решения');
+    return AppStatusPill.pending('Р С›Р В¶Р С‘Р Т‘Р В°Р ВµРЎвЂљ РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ');
   }
 
   @override
@@ -786,8 +788,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                   : Column(
                     children: [
                       AppTopBar(
-                        title: 'Заявки и оплаты',
-                        subtitle: 'Отклики исполнителей и запросы оплаты',
+                        title: 'Р вЂ”Р В°РЎРЏР Р†Р С”Р С‘ Р С‘ Р С•Р С—Р В»Р В°РЎвЂљРЎвЂ№',
+                        subtitle: 'Р С›РЎвЂљР С”Р В»Р С‘Р С”Р С‘ Р С‘РЎРѓР С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»Р ВµР в„– Р С‘ Р В·Р В°Р С—РЎР‚Р С•РЎРѓРЎвЂ№ Р С•Р С—Р В»Р В°РЎвЂљРЎвЂ№',
                         onMenu: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
@@ -810,7 +812,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                                 ),
                                 sliver: SliverToBoxAdapter(
                                   child: _ApplicationsOverviewCard(
-                                    name: _displayName ?? 'Заказчик',
+                                    name: _displayName ?? 'Р вЂ”Р В°Р С”Р В°Р В·РЎвЂЎР С‘Р С”',
                                     avatarUrl: _photo,
                                     totalCount: _items.length,
                                     applicationsCount: _applicationsCount,
@@ -835,7 +837,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                                         AppFilterChip(
                                           icon: CupertinoIcons.sort_down,
                                           label:
-                                              _sortNewest ? 'Новые' : 'Старые',
+                                              _sortNewest ? 'Р СњР С•Р Р†РЎвЂ№Р Вµ' : 'Р РЋРЎвЂљР В°РЎР‚РЎвЂ№Р Вµ',
                                           active: true,
                                           onTap: pageBusy ? () {} : _selectSort,
                                         ),
@@ -846,8 +848,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                                             label:
                                                 pageBusy &&
                                                         _busyItemId == '__all__'
-                                                    ? 'Отклоняем...'
-                                                    : 'Отклонить все',
+                                                    ? 'Р С›РЎвЂљР С”Р В»Р С•Р Р…РЎРЏР ВµР С...'
+                                                    : 'Р С›РЎвЂљР С”Р В»Р С•Р Р…Р С‘РЎвЂљРЎРЉ Р Р†РЎРѓР Вµ',
                                             danger: true,
                                             onTap:
                                                 pageBusy ? () {} : _rejectAll,
@@ -867,7 +869,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                                 ),
                                 sliver: SliverToBoxAdapter(
                                   child: AppSectionHeader(
-                                    title: 'Список',
+                                    title: 'Р РЋР С—Р С‘РЎРѓР С•Р С”',
                                     count: _items.length,
                                   ),
                                 ),
@@ -877,9 +879,9 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                                   hasScrollBody: false,
                                   child: AppEmptyState(
                                     icon: CupertinoIcons.tray,
-                                    title: 'Заявок пока нет',
+                                    title: 'Р вЂ”Р В°РЎРЏР Р†Р С•Р С” Р С—Р С•Р С”Р В° Р Р…Р ВµРЎвЂљ',
                                     subtitle:
-                                        'Когда исполнитель подаст заявку или запросит оплату, запись появится здесь.',
+                                        'Р С™Р С•Р С–Р Т‘Р В° Р С‘РЎРѓР С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»РЎРЉ Р С—Р С•Р Т‘Р В°РЎРѓРЎвЂљ Р В·Р В°РЎРЏР Р†Р С”РЎС“ Р С‘Р В»Р С‘ Р В·Р В°Р С—РЎР‚Р С•РЎРѓР С‘РЎвЂљ Р С•Р С—Р В»Р В°РЎвЂљРЎС“, Р В·Р В°Р С—Р С‘РЎРѓРЎРЉ Р С—Р С•РЎРЏР Р†Р С‘РЎвЂљРЎРѓРЎРЏ Р В·Р Т‘Р ВµРЎРѓРЎРЉ.',
                                   ),
                                 )
                               else
@@ -974,7 +976,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 3),
-                    Text('Заказчик', style: AppTextStyles.caption),
+                    Text('Р вЂ”Р В°Р С”Р В°Р В·РЎвЂЎР С‘Р С”', style: AppTextStyles.caption),
                   ],
                 ),
               ),
@@ -987,7 +989,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Здесь принимаются исполнители и обрабатываются запросы оплаты по задачам.',
+            'Р вЂ”Р Т‘Р ВµРЎРѓРЎРЉ Р С—РЎР‚Р С‘Р Р…Р С‘Р СР В°РЎР‹РЎвЂљРЎРѓРЎРЏ Р С‘РЎРѓР С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»Р С‘ Р С‘ Р С•Р В±РЎР‚Р В°Р В±Р В°РЎвЂљРЎвЂ№Р Р†Р В°РЎР‹РЎвЂљРЎРѓРЎРЏ Р В·Р В°Р С—РЎР‚Р С•РЎРѓРЎвЂ№ Р С•Р С—Р В»Р В°РЎвЂљРЎвЂ№ Р С—Р С• Р В·Р В°Р Т‘Р В°РЎвЂЎР В°Р С.',
             style: AppTextStyles.body,
           ),
           const SizedBox(height: 14),
@@ -995,7 +997,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatCard(
-                  title: 'Всего',
+                  title: 'Р вЂ™РЎРѓР ВµР С–Р С•',
                   value: totalCount.toString(),
                   icon: Icons.inbox_rounded,
                 ),
@@ -1003,7 +1005,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Заявки',
+                  title: 'Р вЂ”Р В°РЎРЏР Р†Р С”Р С‘',
                   value: applicationsCount.toString(),
                   icon: Icons.assignment_ind_outlined,
                 ),
@@ -1011,7 +1013,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Ожидают',
+                  title: 'Р С›Р В¶Р С‘Р Т‘Р В°РЎР‹РЎвЂљ',
                   value: pendingCount.toString(),
                   icon: Icons.schedule_rounded,
                 ),
@@ -1023,7 +1025,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatCard(
-                  title: 'Оплаты',
+                  title: 'Р С›Р С—Р В»Р В°РЎвЂљРЎвЂ№',
                   value: paymentsCount.toString(),
                   icon: Icons.payments_rounded,
                 ),
@@ -1103,7 +1105,8 @@ class _RequestCard extends StatelessWidget {
   bool get _pending => item.status == 'pending';
   bool get _approved => item.status == 'approved';
   bool get _hasTask => item.taskId != null && item.taskId!.isNotEmpty;
-  bool get _canLeaveFeedback => _approved && _hasTask;
+bool get _canLeaveFeedback =>
+    item.type == _ReqType.payment && _approved && _hasTask;
 
   @override
   Widget build(BuildContext context) {
@@ -1144,7 +1147,7 @@ class _RequestCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            item.title.trim().isEmpty ? 'Без описания' : item.title,
+            item.title.trim().isEmpty ? 'Р вЂР ВµР В· Р С•Р С—Р С‘РЎРѓР В°Р Р…Р С‘РЎРЏ' : item.title,
             style: AppTextStyles.cardTitle.copyWith(fontSize: 16),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
@@ -1161,7 +1164,7 @@ class _RequestCard extends StatelessWidget {
                 AppTag(
                   icon: Icons.bar_chart_rounded,
                   label:
-                      'Сложность ${item.complexityProposed}/5 · ${OrderComplexityService.complexityLabel(item.complexityProposed)}',
+                      'Р РЋР В»Р С•Р В¶Р Р…Р С•РЎРѓРЎвЂљРЎРЉ ${item.complexityProposed}/5 Р’В· ${OrderComplexityService.complexityLabel(item.complexityProposed)}',
                 ),
               if (item.type == _ReqType.application &&
                   item.complexityAuto != null &&
@@ -1169,12 +1172,12 @@ class _RequestCard extends StatelessWidget {
                   item.complexityAuto != item.complexityProposed)
                 AppTag(
                   icon: Icons.tune_rounded,
-                  label: 'Система ${item.complexityAuto}/5',
+                  label: 'Р РЋР С‘РЎРѓРЎвЂљР ВµР СР В° ${item.complexityAuto}/5',
                 ),
               if (_hasTask)
                 const AppTag(
                   icon: CupertinoIcons.doc_text,
-                  label: 'Есть задача',
+                  label: 'Р вЂўРЎРѓРЎвЂљРЎРЉ Р В·Р В°Р Т‘Р В°РЎвЂЎР В°',
                 ),
             ],
           ),
@@ -1183,7 +1186,7 @@ class _RequestCard extends StatelessWidget {
               item.complexityReason!.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
-              'Причина изменения сложности: ${item.complexityReason}',
+              'Р СџРЎР‚Р С‘РЎвЂЎР С‘Р Р…Р В° Р С‘Р В·Р СР ВµР Р…Р ВµР Р…Р С‘РЎРЏ РЎРѓР В»Р С•Р В¶Р Р…Р С•РЎРѓРЎвЂљР С‘: ${item.complexityReason}',
               style: AppTextStyles.caption,
             ),
           ],
@@ -1216,7 +1219,7 @@ class _RequestCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: busy ? null : onReject,
                     icon: const Icon(CupertinoIcons.xmark_circle),
-                    label: const Text('Отклонить'),
+                    label: const Text('Р С›РЎвЂљР С”Р В»Р С•Р Р…Р С‘РЎвЂљРЎРЉ'),
                   ),
                 ),
               ],
@@ -1230,14 +1233,14 @@ class _RequestCard extends StatelessWidget {
               ElevatedButton.icon(
                 onPressed: busy ? null : onOpenFeedback,
                 icon: const Icon(CupertinoIcons.star_fill),
-                label: const Text('Оставить / изменить отзыв'),
+                label: const Text('Р С›РЎРѓРЎвЂљР В°Р Р†Р С‘РЎвЂљРЎРЉ / Р С‘Р В·Р СР ВµР Р…Р С‘РЎвЂљРЎРЉ Р С•РЎвЂљР В·РЎвЂ№Р Р†'),
               ),
               const SizedBox(height: 8),
             ],
             OutlinedButton.icon(
               onPressed: busy ? null : onOpenTask,
               icon: const Icon(CupertinoIcons.doc_text),
-              label: const Text('Открыть задачу'),
+              label: const Text('Р С›РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљРЎРЉ Р В·Р В°Р Т‘Р В°РЎвЂЎРЎС“'),
             ),
           ],
         ],

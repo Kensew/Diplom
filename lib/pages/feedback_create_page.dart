@@ -10,10 +10,7 @@ import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 class FeedbackCreatePage extends StatefulWidget {
   final String taskId;
 
-  const FeedbackCreatePage({
-    required this.taskId,
-    Key? key,
-  }) : super(key: key);
+  const FeedbackCreatePage({required this.taskId, Key? key}) : super(key: key);
 
   @override
   State<FeedbackCreatePage> createState() => _FeedbackCreatePageState();
@@ -91,6 +88,79 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
     }
   }
 
+  bool _isSameFeedback({
+    required Map<String, dynamic> data,
+    required String orderId,
+    required String reviewerId,
+    required String reviewedUserId,
+    required String reviewType,
+  }) {
+    final feedbackOrderId = _relationId(data['order_id']);
+    final feedbackReviewerId = _relationId(data['reviewer_id']);
+
+    if (feedbackOrderId != orderId || feedbackReviewerId != reviewerId) {
+      return false;
+    }
+
+    final feedbackReviewedUserId = _relationId(data['reviewed_user_id']);
+    final feedbackType = data['type']?.toString().trim();
+
+    final hasNewFields =
+        feedbackReviewedUserId != null ||
+        (feedbackType != null && feedbackType.isNotEmpty);
+
+    if (!hasNewFields) {
+      return true;
+    }
+
+    return feedbackReviewedUserId == reviewedUserId &&
+        feedbackType == reviewType;
+  }
+
+  Future<Map<String, dynamic>?> _findExistingFeedback({
+    required String orderId,
+    required String reviewerId,
+    required String reviewedUserId,
+    required String reviewType,
+  }) async {
+    final feedbacks = await PocketBaseService.instance.pb
+        .collection('feedbacks')
+        .getList(page: 1, perPage: 200);
+
+    Map<String, dynamic>? selected;
+    DateTime? selectedCreatedAt;
+
+    for (final feedback in feedbacks.items) {
+      if (!_isSameFeedback(
+        data: feedback.data,
+        orderId: orderId,
+        reviewerId: reviewerId,
+        reviewedUserId: reviewedUserId,
+        reviewType: reviewType,
+      )) {
+        continue;
+      }
+
+      final createdAt = DateTime.tryParse(
+        feedback.get<String>('created') ?? '',
+      );
+
+      if (selected == null ||
+          (createdAt != null &&
+              (selectedCreatedAt == null ||
+                  createdAt.isAfter(selectedCreatedAt)))) {
+        selected = {
+          'id': feedback.id,
+          'created': feedback.get<String>('created') ?? '',
+          ...feedback.data,
+        };
+        selectedCreatedAt = createdAt;
+      }
+    }
+
+    return selected;
+  }
+
   Future<bool> _hasApprovedPayment(
     String taskId,
     String? paymentStatusId,
@@ -127,7 +197,10 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
     setState(() {
       _loading = true;
       _error = null;
+      _alreadyExists = false;
       _existingFeedbackId = null;
+      _textCtrl.clear();
+      _rating = 5;
     });
 
     try {
@@ -143,6 +216,10 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
       final orderId = _relationId(task.data['order_id']);
       final executorId = _relationId(task.data['executor_id']);
       final paymentStatusId = _relationId(task.data['payment_status_id']);
+
+      if (orderId == null) {
+        throw 'Заказ не найден';
+      }
 
       final order = await _getRecordData('orders', orderId);
 
@@ -176,39 +253,14 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
 
       final reviewedUser = await _getRecordData('users', reviewedUserId);
 
-      final feedbacks = await service.pb
-          .collection('feedbacks')
-          .getList(page: 1, perPage: 200);
+      final existing = await _findExistingFeedback(
+        orderId: orderId,
+        reviewerId: currentUserId,
+        reviewedUserId: reviewedUserId,
+        reviewType: reviewType,
+      );
 
-      String? existingFeedbackId;
-      int? existingRating;
-      String? existingText;
-      DateTime? existingCreatedAt;
-
-      for (final feedback in feedbacks.items) {
-        final feedbackOrderId = _relationId(feedback.data['order_id']);
-        final feedbackReviewerId = _relationId(feedback.data['reviewer_id']);
-
-        if (feedbackOrderId != orderId || feedbackReviewerId != currentUserId) {
-          continue;
-        }
-
-        final createdAt = DateTime.tryParse(
-          feedback.get<String>('created') ?? '',
-        );
-
-        if (existingFeedbackId == null ||
-            (createdAt != null &&
-                (existingCreatedAt == null ||
-                    createdAt.isAfter(existingCreatedAt)))) {
-          existingFeedbackId = feedback.id;
-          existingCreatedAt = createdAt;
-          existingRating = (feedback.data['estimate'] as num?)?.toInt();
-          existingText = feedback.data['text'] as String? ?? '';
-        }
-      }
-
-      final exists = existingFeedbackId != null;
+      final exists = existing != null;
 
       _orderId = orderId;
       _reviewerId = currentUserId;
@@ -216,11 +268,11 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
       _reviewType = reviewType;
       _reviewedRole = reviewedRole;
       _alreadyExists = exists;
-      _existingFeedbackId = existingFeedbackId;
+      _existingFeedbackId = existing?['id'] as String?;
 
       if (exists) {
-        _rating = existingRating ?? 5;
-        _textCtrl.text = existingText ?? '';
+        _rating = (existing['estimate'] as num?)?.toInt() ?? 5;
+        _textCtrl.text = existing['text'] as String? ?? '';
       }
 
       _orderTitle = order['task_description'] as String? ?? 'Заказ';
@@ -264,8 +316,6 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
     setState(() => _saving = true);
 
     try {
-      final wasEditing = _existingFeedbackId != null;
-
       final body = {
         'order_id': orderId,
         'reviewer_id': reviewerId,
@@ -275,7 +325,19 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
         'text': _textCtrl.text.trim(),
       };
 
-      if (_existingFeedbackId == null) {
+      final actualExisting = await _findExistingFeedback(
+        orderId: orderId,
+        reviewerId: reviewerId,
+        reviewedUserId: reviewedUserId,
+        reviewType: reviewType,
+      );
+
+      final actualExistingId =
+          _existingFeedbackId ?? actualExisting?['id'] as String?;
+
+      final wasEditing = actualExistingId != null;
+
+      if (actualExistingId == null) {
         final created = await PocketBaseService.instance.pb
             .collection('feedbacks')
             .create(body: body);
@@ -285,7 +347,10 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
       } else {
         await PocketBaseService.instance.pb
             .collection('feedbacks')
-            .update(_existingFeedbackId!, body: body);
+            .update(actualExistingId, body: body);
+
+        _existingFeedbackId = actualExistingId;
+        _alreadyExists = true;
       }
 
       if (!mounted) return;
@@ -300,9 +365,9 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка сохранения отзыва: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка сохранения отзыва: $e')));
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -324,57 +389,59 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
       backgroundColor: AppColors.background,
       body: AppScreenBackground(
         child: SafeArea(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
+          child:
+              _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
                   ? AppErrorState(message: _error!, onRetry: _loadContext)
                   : Column(
-                      children: [
-                        AppTopBar(
-                          title: _alreadyExists
-                              ? 'Изменить отзыв'
-                              : 'Оставить отзыв',
-                          subtitle: 'Оценка после оплаты заказа',
-                          onBack: _goBack,
-                        ),
-                        Expanded(
-                          child: ListView(
-                            physics: const BouncingScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-                            children: [
-                              _ReviewTargetCard(
-                                name: _reviewedName ?? 'Пользователь',
-                                role: _reviewedRole ?? 'Участник',
-                                avatarUrl: _reviewedAvatarUrl,
-                                orderTitle: _orderTitle ?? 'Заказ',
-                              ),
+                    children: [
+                      AppTopBar(
+                        title:
+                            _alreadyExists
+                                ? 'Изменить отзыв'
+                                : 'Оставить отзыв',
+                        subtitle: 'Оценка после оплаты заказа',
+                        onBack: _goBack,
+                      ),
+                      Expanded(
+                        child: ListView(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                          children: [
+                            _ReviewTargetCard(
+                              name: _reviewedName ?? 'Пользователь',
+                              role: _reviewedRole ?? 'Участник',
+                              avatarUrl: _reviewedAvatarUrl,
+                              orderTitle: _orderTitle ?? 'Заказ',
+                            ),
+                            const SizedBox(height: 12),
+                            if (_alreadyExists) ...[
+                              const _ExistingReviewNotice(),
                               const SizedBox(height: 12),
-                              if (_alreadyExists) ...[
-                                const _ExistingReviewNotice(),
-                                const SizedBox(height: 12),
-                              ],
-                              _RatingCard(
-                                rating: _rating,
-                                onChanged: (value) {
-                                  setState(() => _rating = value);
-                                },
-                              ),
-                              const SizedBox(height: 12),
-                              _TextFeedbackCard(
-                                controller: _textCtrl,
-                                saving: _saving,
-                              ),
-                              const SizedBox(height: 12),
-                              _SubmitReviewCard(
-                                saving: _saving,
-                                editing: _alreadyExists,
-                                onSubmit: _submit,
-                              ),
                             ],
-                          ),
+                            _RatingCard(
+                              rating: _rating,
+                              onChanged: (value) {
+                                setState(() => _rating = value);
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            _TextFeedbackCard(
+                              controller: _textCtrl,
+                              saving: _saving,
+                            ),
+                            const SizedBox(height: 12),
+                            _SubmitReviewCard(
+                              saving: _saving,
+                              editing: _alreadyExists,
+                              onSubmit: _submit,
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
+                  ),
         ),
       ),
     );
@@ -473,10 +540,7 @@ class _RatingCard extends StatelessWidget {
   final int rating;
   final ValueChanged<int> onChanged;
 
-  const _RatingCard({
-    required this.rating,
-    required this.onChanged,
-  });
+  const _RatingCard({required this.rating, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -506,9 +570,7 @@ class _RatingCard extends StatelessWidget {
             }),
           ),
           const SizedBox(height: 8),
-          Center(
-            child: Text('$rating из 5', style: AppTextStyles.cardTitle),
-          ),
+          Center(child: Text('$rating из 5', style: AppTextStyles.cardTitle)),
         ],
       ),
     );
@@ -519,10 +581,7 @@ class _TextFeedbackCard extends StatelessWidget {
   final TextEditingController controller;
   final bool saving;
 
-  const _TextFeedbackCard({
-    required this.controller,
-    required this.saving,
-  });
+  const _TextFeedbackCard({required this.controller, required this.saving});
 
   @override
   Widget build(BuildContext context) {
@@ -547,7 +606,8 @@ class _TextFeedbackCard extends StatelessWidget {
             style: AppTextStyles.body.copyWith(color: AppColors.text),
             decoration: const InputDecoration(
               labelText: 'Текст отзыва',
-              hintText: 'Например: работа выполнена в срок, связь была хорошая...',
+              hintText:
+                  'Например: работа выполнена в срок, связь была хорошая...',
               alignLabelWithHint: true,
             ),
           ),
@@ -577,19 +637,20 @@ class _SubmitReviewCard extends StatelessWidget {
         children: [
           ElevatedButton.icon(
             onPressed: saving ? null : onSubmit,
-            icon: saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(CupertinoIcons.check_mark_circled),
+            icon:
+                saving
+                    ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(CupertinoIcons.check_mark_circled),
             label: Text(
               saving
                   ? 'Сохраняем...'
                   : editing
-                      ? 'Сохранить изменения'
-                      : 'Опубликовать отзыв',
+                  ? 'Сохранить изменения'
+                  : 'Опубликовать отзыв',
             ),
           ),
           const SizedBox(height: 10),

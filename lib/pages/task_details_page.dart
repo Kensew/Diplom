@@ -47,6 +47,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   bool _feedbackAlreadyLeft = false;
   String? _feedbackTargetName;
   String? _feedbackTargetRole;
+  String? _feedbackReviewType;
+  String? _feedbackTargetUserId;
 
   String? _role;
   String? _name;
@@ -80,15 +82,21 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -358,6 +366,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     _feedbackAlreadyLeft = false;
     _feedbackTargetName = null;
     _feedbackTargetRole = null;
+    _feedbackReviewType = null;
+    _feedbackTargetUserId = null;
 
     if (!_isPaid || _orderId == null) return;
 
@@ -366,13 +376,16 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
     String? targetUserId;
     String? targetRole;
+    String? reviewType;
 
     if (currentUserId == _customerId && _executorId != null) {
       targetUserId = _executorId;
       targetRole = 'исполнителю';
+      reviewType = 'customer_to_executor';
     } else if (currentUserId == _executorId && _customerId != null) {
       targetUserId = _customerId;
       targetRole = 'заказчику';
+      reviewType = 'executor_to_customer';
     } else {
       return;
     }
@@ -386,8 +399,18 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     for (final feedback in feedbacks.items) {
       final orderId = _relationId(feedback.data['order_id']);
       final reviewerId = _relationId(feedback.data['reviewer_id']);
+      final reviewedUserId = _relationId(feedback.data['reviewed_user_id']);
+      final type = feedback.data['type']?.toString();
 
-      if (orderId == _orderId && reviewerId == currentUserId) {
+      final sameLegacyFeedback =
+          orderId == _orderId && reviewerId == currentUserId;
+      final sameNewFeedback =
+          orderId == _orderId &&
+          reviewerId == currentUserId &&
+          reviewedUserId == targetUserId &&
+          type == reviewType;
+
+      if (sameNewFeedback || sameLegacyFeedback) {
         _feedbackAlreadyLeft = true;
         break;
       }
@@ -395,6 +418,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
     _canLeaveFeedback = true;
     _feedbackTargetRole = targetRole;
+    _feedbackReviewType = reviewType;
+    _feedbackTargetUserId = targetUserId;
     _feedbackTargetName =
         targetUser?['name'] as String? ??
         targetUser?['email'] as String? ??
@@ -737,6 +762,34 @@ class _TaskActionsCard extends StatelessWidget {
     required this.onOpenFeedback,
   });
 
+  String get _feedbackButtonText {
+    if (feedbackAlreadyLeft) {
+      return 'Изменить отзыв';
+    }
+
+    final targetRole = feedbackTargetRole?.trim();
+
+    if (targetRole == null || targetRole.isEmpty) {
+      return 'Оставить отзыв';
+    }
+
+    return 'Оставить отзыв $targetRole';
+  }
+
+  String get _feedbackHintText {
+    if (feedbackAlreadyLeft) {
+      return 'Отзыв уже есть. Можно открыть форму и обновить оценку.';
+    }
+
+    final targetName = feedbackTargetName?.trim();
+
+    if (targetName == null || targetName.isEmpty) {
+      return 'Отзыв будет доступен после подтверждения оплаты.';
+    }
+
+    return 'Получатель: $targetName';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppSurfaceCard(
@@ -787,6 +840,24 @@ class _TaskActionsCard extends StatelessWidget {
               onPressed: null,
               icon: const Icon(CupertinoIcons.check_mark_circled),
               label: const Text('Оплата подтверждена'),
+            ),
+          ],
+          if (canLeaveFeedback) ...[
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              onPressed: onOpenFeedback,
+              icon: Icon(
+                feedbackAlreadyLeft
+                    ? CupertinoIcons.pencil
+                    : CupertinoIcons.star_fill,
+              ),
+              label: Text(_feedbackButtonText),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _feedbackHintText,
+              style: AppTextStyles.caption,
+              textAlign: TextAlign.center,
             ),
           ],
         ],
