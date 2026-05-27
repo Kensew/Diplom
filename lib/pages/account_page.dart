@@ -1315,6 +1315,6 @@ class _InfoRow extends StatelessWidget {
           ),
         ],
       ),
-    );5
+    );
   }
 }

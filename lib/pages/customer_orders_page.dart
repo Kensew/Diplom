@@ -169,7 +169,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
       final userId = service.currentUserId;
 
       if (userId == null) {
-        throw 'Неавторизован';
+        throw '?????????????';
       }
 
       final user = await pb.collection('users').getOne(userId);
@@ -206,11 +206,11 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
         final framework = await _getRecordData('frameworks', frameworkId);
         final language = await _getRecordData('languages', languageId);
 
-        final frameworkName = framework?['name'] as String? ?? '—';
-        final languageName = language?['name'] as String? ?? '—';
+        final frameworkName = framework?['name'] as String? ?? '?';
+        final languageName = language?['name'] as String? ?? '?';
 
-        if (frameworkName != '—') frameworkSet.add(frameworkName);
-        if (languageName != '—') languageSet.add(languageName);
+        if (frameworkName != '?') frameworkSet.add(frameworkName);
+        if (languageName != '?') languageSet.add(languageName);
 
         result.add({
           'id': record.id,
@@ -239,7 +239,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
       _frameworks = frameworkSet.toList()..sort();
       _languages = languageSet.toList()..sort();
     } catch (e) {
-      _error = 'Не удалось загрузить заказы: $e';
+      _error = '?? ??????? ????????? ??????: $e';
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -252,16 +252,16 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
       context: context,
       builder:
           (_) => AlertDialog(
-            title: const Text('Удалить заказ?'),
-            content: const Text('Заказ будет удалён из базы данных.'),
+            title: const Text('??????? ??????'),
+            content: const Text('????? ????? ????? ?? ???? ??????.'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Отмена'),
+                child: const Text('??????'),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Удалить'),
+                child: const Text('???????'),
               ),
             ],
           ),
@@ -279,7 +279,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Ошибка при удалении: $e')));
+      ).showSnackBar(SnackBar(content: Text('?????? ??? ????????: $e')));
     }
   }
 
@@ -313,7 +313,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
   String _formatDate(String? raw) {
     final dt = _parseDate(raw);
-    if (dt == null) return '—';
+    if (dt == null) return '?';
 
     return _fmt.format(dt.toLocal());
   }
@@ -324,10 +324,10 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
   String _formatMoney(num value) {
     if (value % 1 == 0) {
-      return '${value.toStringAsFixed(0)} ₽';
+      return '${value.toStringAsFixed(0)} ?';
     }
 
-    return '${value.toStringAsFixed(2)} ₽';
+    return '${value.toStringAsFixed(2)} ?';
   }
 
   bool _hasExecutor(Map<String, dynamic> order) {
@@ -345,16 +345,16 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
   String _sortLabel(String value) {
     switch (value) {
       case 'Oldest':
-        return 'Старые';
+        return '??????';
       case 'By deadline':
-        return 'По дедлайну';
-      case 'Price ↑':
-        return 'Цена ↑';
-      case 'Price ↓':
-        return 'Цена ↓';
+        return '?? ????????';
+      case 'Price ^':
+        return '???? ^';
+      case 'Price v':
+        return '???? v';
       case 'Newest':
       default:
-        return 'Новые';
+        return '?????';
     }
   }
 
@@ -392,11 +392,11 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
         });
         return list;
 
-      case 'Price ↑':
+      case 'Price ^':
         list.sort((a, b) => _priceOf(a).compareTo(_priceOf(b)));
         return list;
 
-      case 'Price ↓':
+      case 'Price v':
         list.sort((a, b) => _priceOf(b).compareTo(_priceOf(a)));
         return list;
 
@@ -432,7 +432,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
         children: [
           if (allowNull)
             AppBottomSheetOption(
-              title: 'Все',
+              title: '???',
               selected: currentValue == null,
               onTap: () {
                 Navigator.pop(context);
@@ -482,7 +482,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openCreateOrder,
         icon: const Icon(Icons.add),
-        label: const Text('Новый заказ'),
+        label: const Text('????? ?????'),
       ),
       body: AppScreenBackground(
         child: SafeArea(
@@ -494,8 +494,8 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                   : Column(
                     children: [
                       AppTopBar(
-                        title: 'Мои заказы',
-                        subtitle: 'Созданные заказы и назначенные исполнители',
+                        title: '??? ??????',
+                        subtitle: '????????? ?????? ? ??????????? ???????????',
                         onMenu: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
@@ -518,7 +518,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                 ),
                                 sliver: SliverToBoxAdapter(
                                   child: _CustomerOrdersOverviewCard(
-                                    name: _name ?? 'Заказчик',
+                                    name: _name ?? '????????',
                                     avatarUrl: _photo,
                                     totalCount: _orders.length,
                                     assignedCount: _assignedCount,
@@ -536,7 +536,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                 sliver: SliverToBoxAdapter(
                                   child: AppSearchField(
                                     controller: _searchController,
-                                    hint: 'Поиск по заказам',
+                                    hint: '????? ?? ???????',
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ),
@@ -557,13 +557,13 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                     hasActiveFilters: hasActiveFilters,
                                     onSort: () {
                                       _selectFromList(
-                                        title: 'Сортировка',
+                                        title: '??????????',
                                         values: const [
                                           'Newest',
                                           'Oldest',
                                           'By deadline',
-                                          'Price ↑',
-                                          'Price ↓',
+                                          'Price ^',
+                                          'Price v',
                                         ],
                                         currentValue: _sort,
                                         allowNull: false,
@@ -577,7 +577,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                     },
                                     onFramework: () {
                                       _selectFromList(
-                                        title: 'Фреймворк',
+                                        title: '?????????',
                                         values: _frameworks,
                                         currentValue: _filterFramework,
                                         onSelected: (value) {
@@ -589,7 +589,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                     },
                                     onLanguage: () {
                                       _selectFromList(
-                                        title: 'Язык',
+                                        title: '????',
                                         values: _languages,
                                         currentValue: _filterLanguage,
                                         onSelected: (value) {
@@ -613,7 +613,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                 ),
                                 sliver: SliverToBoxAdapter(
                                   child: AppSectionHeader(
-                                    title: 'Заказы',
+                                    title: '??????',
                                     count: filteredOrders.length,
                                   ),
                                 ),
@@ -628,16 +628,16 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                             : CupertinoIcons.doc_text,
                                     title:
                                         hasActiveFilters
-                                            ? 'Ничего не найдено'
-                                            : 'Заказов пока нет',
+                                            ? '?????? ?? ???????'
+                                            : '??????? ???? ???',
                                     subtitle:
                                         hasActiveFilters
-                                            ? 'Измени фильтры или поисковый запрос.'
-                                            : 'Создай первый заказ, чтобы исполнитель смог подать заявку.',
+                                            ? '?????? ??????? ??? ????????? ??????.'
+                                            : '?????? ?????? ?????, ????? ??????????? ???? ?????? ??????.',
                                     action: ElevatedButton.icon(
                                       onPressed: _openCreateOrder,
                                       icon: const Icon(Icons.add),
-                                      label: const Text('Создать заказ'),
+                                      label: const Text('??????? ?????'),
                                     ),
                                   ),
                                 )
@@ -669,11 +669,11 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                           framework:
                                               order['framework_name']
                                                   as String? ??
-                                              '—',
+                                              '?',
                                           language:
                                               order['language_name']
                                                   as String? ??
-                                              '—',
+                                              '?',
                                           deadline: _formatDate(
                                             order['deadline'] as String?,
                                           ),
@@ -735,7 +735,7 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 3),
-                    Text('Заказчик', style: AppTextStyles.caption),
+                    Text('????????', style: AppTextStyles.caption),
                   ],
                 ),
               ),
@@ -748,7 +748,7 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Здесь собраны твои заказы, заявки исполнителей и переходы к задачам.',
+            '????? ??????? ???? ??????, ?????? ???????????? ? ???????? ? ???????.',
             style: AppTextStyles.body,
           ),
           const SizedBox(height: 14),
@@ -756,7 +756,7 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatCard(
-                  title: 'Всего',
+                  title: '?????',
                   value: totalCount.toString(),
                   icon: Icons.receipt_long_rounded,
                 ),
@@ -764,7 +764,7 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Назначены',
+                  title: '?????????',
                   value: assignedCount.toString(),
                   icon: Icons.person_add_alt_1_rounded,
                 ),
@@ -772,7 +772,7 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Ожидают',
+                  title: '???????',
                   value: waitingCount.toString(),
                   icon: Icons.schedule_rounded,
                 ),
@@ -859,21 +859,21 @@ class _CustomerOrdersFilterBar extends StatelessWidget {
           const SizedBox(width: 8),
           AppFilterChip(
             icon: Icons.view_in_ar_outlined,
-            label: framework ?? 'Фреймворк',
+            label: framework ?? '?????????',
             active: framework != null,
             onTap: onFramework,
           ),
           const SizedBox(width: 8),
           AppFilterChip(
             icon: Icons.code_rounded,
-            label: language ?? 'Язык',
+            label: language ?? '????',
             active: language != null,
             onTap: onLanguage,
           ),
           const SizedBox(width: 8),
           AppFilterChip(
             icon: CupertinoIcons.calendar,
-            label: deadline ?? 'Дедлайн',
+            label: deadline ?? '???????',
             active: deadline != null,
             onTap: onDeadline,
           ),
@@ -881,7 +881,7 @@ class _CustomerOrdersFilterBar extends StatelessWidget {
             const SizedBox(width: 8),
             AppFilterChip(
               icon: CupertinoIcons.clear,
-              label: 'Сбросить',
+              label: '????????',
               danger: true,
               onTap: onClear,
             ),
@@ -925,7 +925,7 @@ class _CustomerOrderCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  title.trim().isEmpty ? 'Без описания' : title,
+                  title.trim().isEmpty ? '??? ????????' : title,
                   style: AppTextStyles.cardTitle.copyWith(fontSize: 16),
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
@@ -962,9 +962,9 @@ class _CustomerOrderCard extends StatelessWidget {
               AppTag(icon: Icons.view_in_ar_outlined, label: framework),
               AppTag(icon: Icons.code_rounded, label: language),
               assigned
-                  ? AppStatusPill.success('Исполнитель назначен')
+                  ? AppStatusPill.success('??????????? ????????')
                   : const AppStatusPill(
-                    text: 'Ожидает исполнителя',
+                    text: '??????? ???????????',
                     color: AppColors.textMuted,
                     icon: CupertinoIcons.clock,
                   ),
@@ -978,7 +978,7 @@ class _CustomerOrderCard extends StatelessWidget {
               Expanded(
                 child: AppMetaItem(
                   icon: Icons.currency_ruble_rounded,
-                  label: 'Бюджет',
+                  label: '??????',
                   value: price,
                 ),
               ),
@@ -986,7 +986,7 @@ class _CustomerOrderCard extends StatelessWidget {
               Expanded(
                 child: AppMetaItem(
                   icon: CupertinoIcons.calendar_today,
-                  label: 'Дедлайн',
+                  label: '???????',
                   value: deadline,
                 ),
               ),

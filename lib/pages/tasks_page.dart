@@ -129,7 +129,7 @@ class _TasksPageState extends State<TasksPage> {
       final userId = service.currentUserId;
 
       if (userId == null) {
-        throw 'Р СњР ВµР В°Р Р†РЎвЂљР С•РЎР‚Р С‘Р В·Р С•Р Р†Р В°Р Р…';
+        throw 'Неавторизован';
       }
 
       final user = await pb.collection('users').getOne(userId);
@@ -172,10 +172,10 @@ class _TasksPageState extends State<TasksPage> {
           'id': record.id,
           'created': record.get<String>('created') ?? '',
           'order_id': orderId,
-          'title': order?['task_description'] as String? ?? 'РІР‚вЂќ',
+          'title': order?['task_description'] as String? ?? '—',
           'deadline': order?['deadline'] as String?,
-          'status': status?['name'] as String? ?? 'РІР‚вЂќ',
-          'payment_status': paymentStatus?['name'] as String? ?? 'РІР‚вЂќ',
+          'status': status?['name'] as String? ?? '—',
+          'payment_status': paymentStatus?['name'] as String? ?? '—',
           'estimated_time': record.data['estimated_time'],
           'time_spent': record.data['time_spent'],
           'payment_amount': record.data['payment_amount'],
@@ -196,7 +196,7 @@ class _TasksPageState extends State<TasksPage> {
 
       _tasks = result;
     } catch (e) {
-      _error = 'Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С‘РЎвЂљРЎРЉ Р В·Р В°Р Т‘Р В°РЎвЂЎР С‘: $e';
+      _error = 'Не удалось загрузить задачи: $e';
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -210,7 +210,7 @@ class _TasksPageState extends State<TasksPage> {
 
   String _formatDeadline(String? raw) {
     final dt = _parseDate(raw);
-    if (dt == null) return 'РІР‚вЂќ';
+    if (dt == null) return '—';
 
     return _fmt.format(dt.toLocal());
   }
@@ -221,25 +221,25 @@ class _TasksPageState extends State<TasksPage> {
 
   String _formatMoney(num value) {
     if (value % 1 == 0) {
-      return '${value.toStringAsFixed(0)} РІвЂљР…';
+      return '${value.toStringAsFixed(0)} ₽';
     }
 
-    return '${value.toStringAsFixed(2)} РІвЂљР…';
+    return '${value.toStringAsFixed(2)} ₽';
   }
 
   String _sortLabel(String value) {
     switch (value) {
       case 'Oldest':
-        return 'Р РЋРЎвЂљР В°РЎР‚РЎвЂ№Р Вµ';
+        return 'Старые';
       case 'By deadline':
-        return 'Р СџР С• Р Т‘Р ВµР Т‘Р В»Р В°Р в„–Р Р…РЎС“';
-      case 'Amount РІвЂ вЂ':
-        return 'Р РЋРЎС“Р СР СР В° РІвЂ вЂ';
-      case 'Amount РІвЂ вЂњ':
-        return 'Р РЋРЎС“Р СР СР В° РІвЂ вЂњ';
+        return 'По дедлайну';
+      case 'Amount ↑':
+        return 'Сумма ↑';
+      case 'Amount ↓':
+        return 'Сумма ↓';
       case 'Newest':
       default:
-        return 'Р СњР С•Р Р†РЎвЂ№Р Вµ';
+        return 'Новые';
     }
   }
 
@@ -275,11 +275,11 @@ class _TasksPageState extends State<TasksPage> {
         });
         return list;
 
-      case 'Amount РІвЂ вЂ':
+      case 'Amount ↑':
         list.sort((a, b) => _amountOf(a).compareTo(_amountOf(b)));
         return list;
 
-      case 'Amount РІвЂ вЂњ':
+      case 'Amount ↓':
         list.sort((a, b) => _amountOf(b).compareTo(_amountOf(a)));
         return list;
 
@@ -292,7 +292,7 @@ class _TasksPageState extends State<TasksPage> {
   Future<void> _selectSort() async {
     await showAppBottomSheet(
       context: context,
-      title: 'Р РЋР С•РЎР‚РЎвЂљР С‘РЎР‚Р С•Р Р†Р С”Р В°',
+      title: 'Сортировка',
       child: ListView(
         shrinkWrap: true,
         physics: const BouncingScrollPhysics(),
@@ -301,8 +301,8 @@ class _TasksPageState extends State<TasksPage> {
             'Newest',
             'Oldest',
             'By deadline',
-            'Amount РІвЂ вЂ',
-            'Amount РІвЂ вЂњ',
+            'Amount ↑',
+            'Amount ↓',
           ].map(
             (value) => AppBottomSheetOption(
               title: _sortLabel(value),
@@ -362,8 +362,8 @@ class _TasksPageState extends State<TasksPage> {
                   : Column(
                     children: [
                       AppTopBar(
-                        title: 'Р СљР С•Р С‘ Р В·Р В°Р Т‘Р В°РЎвЂЎР С‘',
-                        subtitle: 'Р СћР ВµР С”РЎС“РЎвЂ°Р С‘Р Вµ РЎР‚Р В°Р В±Р С•РЎвЂљРЎвЂ№ Р С‘ Р С•Р С—Р В»Р В°РЎвЂљР В°',
+                        title: 'Мои задачи',
+                        subtitle: 'Текущие работы и оплата',
                         onMenu: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
@@ -386,7 +386,7 @@ class _TasksPageState extends State<TasksPage> {
                                 ),
                                 sliver: SliverToBoxAdapter(
                                   child: _TasksOverviewCard(
-                                    name: _name ?? 'Р ВРЎРѓР С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»РЎРЉ',
+                                    name: _name ?? 'Исполнитель',
                                     avatarUrl: _photo,
                                     totalCount: _tasks.length,
                                     pendingPaymentsCount: _pendingPaymentsCount,
@@ -404,7 +404,7 @@ class _TasksPageState extends State<TasksPage> {
                                 sliver: SliverToBoxAdapter(
                                   child: AppSearchField(
                                     controller: _searchController,
-                                    hint: 'Р СџР С•Р С‘РЎРѓР С” Р С—Р С• Р В·Р В°Р Т‘Р В°РЎвЂЎР В°Р С',
+                                    hint: 'Поиск по задачам',
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ),
@@ -432,7 +432,7 @@ class _TasksPageState extends State<TasksPage> {
                                           const SizedBox(width: 8),
                                           AppFilterChip(
                                             icon: CupertinoIcons.clear,
-                                            label: 'Р РЋР В±РЎР‚Р С•РЎРѓР С‘РЎвЂљРЎРЉ',
+                                            label: 'Сбросить',
                                             danger: true,
                                             onTap: () {
                                               setState(() {
@@ -455,7 +455,7 @@ class _TasksPageState extends State<TasksPage> {
                                 ),
                                 sliver: SliverToBoxAdapter(
                                   child: AppSectionHeader(
-                                    title: 'Р вЂ”Р В°Р Т‘Р В°РЎвЂЎР С‘',
+                                    title: 'Задачи',
                                     count: filteredTasks.length,
                                   ),
                                 ),
@@ -470,12 +470,12 @@ class _TasksPageState extends State<TasksPage> {
                                             : CupertinoIcons.checkmark_seal,
                                     title:
                                         hasSearch
-                                            ? 'Р СњР С‘РЎвЂЎР ВµР С–Р С• Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…Р С•'
-                                            : 'Р вЂ”Р В°Р Т‘Р В°РЎвЂЎ Р С—Р С•Р С”Р В° Р Р…Р ВµРЎвЂљ',
+                                            ? 'Ничего не найдено'
+                                            : 'Задач пока нет',
                                     subtitle:
                                         hasSearch
-                                            ? 'Р ВР В·Р СР ВµР Р…Р С‘ Р С—Р С•Р С‘РЎРѓР С”Р С•Р Р†РЎвЂ№Р в„– Р В·Р В°Р С—РЎР‚Р С•РЎРѓ.'
-                                            : 'Р С™Р С•Р С–Р Т‘Р В° Р В·Р В°Р С”Р В°Р В·РЎвЂЎР С‘Р С” Р С—РЎР‚Р С‘Р СР ВµРЎвЂљ РЎвЂљР Р†Р С•РЎР‹ Р В·Р В°РЎРЏР Р†Р С”РЎС“, Р В·Р В°Р Т‘Р В°РЎвЂЎР В° Р С—Р С•РЎРЏР Р†Р С‘РЎвЂљРЎРѓРЎРЏ Р В·Р Т‘Р ВµРЎРѓРЎРЉ.',
+                                            ? 'Измени поисковый запрос.'
+                                            : 'Когда заказчик примет твою заявку, задача появится здесь.',
                                   ),
                                 )
                               else
@@ -499,13 +499,13 @@ class _TasksPageState extends State<TasksPage> {
 
                                         return _TaskCard(
                                           title:
-                                              task['title'] as String? ?? 'РІР‚вЂќ',
+                                              task['title'] as String? ?? '—',
                                           status:
-                                              task['status'] as String? ?? 'РІР‚вЂќ',
+                                              task['status'] as String? ?? '—',
                                           paymentStatus:
                                               task['payment_status']
                                                   as String? ??
-                                              'РІР‚вЂќ',
+                                              '—',
                                           deadline: _formatDeadline(
                                             task['deadline'] as String?,
                                           ),
@@ -575,7 +575,7 @@ class _TasksOverviewCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 3),
-                    Text('Р ВРЎРѓР С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»РЎРЉ', style: AppTextStyles.caption),
+                    Text('Исполнитель', style: AppTextStyles.caption),
                   ],
                 ),
               ),
@@ -588,7 +588,7 @@ class _TasksOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Р вЂ”Р Т‘Р ВµРЎРѓРЎРЉ РЎРѓР С•Р В±РЎР‚Р В°Р Р…РЎвЂ№ Р В·Р В°Р Т‘Р В°РЎвЂЎР С‘, Р Р…Р В°Р В·Р Р…Р В°РЎвЂЎР ВµР Р…Р Р…РЎвЂ№Р Вµ Р С—Р С•РЎРѓР В»Р Вµ Р С—РЎР‚Р С‘Р Р…РЎРЏРЎвЂљР С‘РЎРЏ Р В·Р В°РЎРЏР Р†Р С”Р С‘ Р В·Р В°Р С”Р В°Р В·РЎвЂЎР С‘Р С”Р С•Р С.',
+            'Здесь собраны задачи, назначенные после принятия заявки заказчиком.',
             style: AppTextStyles.body,
           ),
           const SizedBox(height: 14),
@@ -596,7 +596,7 @@ class _TasksOverviewCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatCard(
-                  title: 'Р вЂ™РЎРѓР ВµР С–Р С•',
+                  title: 'Всего',
                   value: totalCount.toString(),
                   icon: Icons.task_alt_rounded,
                 ),
@@ -604,7 +604,7 @@ class _TasksOverviewCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Р С›Р В¶Р С‘Р Т‘Р В°РЎР‹РЎвЂљ',
+                  title: 'Ожидают',
                   value: pendingPaymentsCount.toString(),
                   icon: Icons.schedule_rounded,
                 ),
@@ -612,7 +612,7 @@ class _TasksOverviewCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Р С›Р С—Р В»Р В°РЎвЂЎР ВµР Р…Р С•',
+                  title: 'Оплачено',
                   value: paidTasksCount.toString(),
                   icon: Icons.payments_rounded,
                 ),
@@ -728,7 +728,7 @@ class _TaskCard extends StatelessWidget {
     final normalized = value.clamp(1, 5).toInt();
 
     return AppStatusPill(
-      text: 'РЎР»РѕР¶РЅРѕСЃС‚СЊ /5',
+      text: 'Сложность $normalized/5',
       color: AppColors.accent,
       icon: CupertinoIcons.chart_bar_alt_fill,
     );
@@ -745,7 +745,7 @@ class _TaskCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            title.trim().isEmpty ? 'Р вЂР ВµР В· Р С•Р С—Р С‘РЎРѓР В°Р Р…Р С‘РЎРЏ' : title,
+            title.trim().isEmpty ? 'Без описания' : title,
             style: AppTextStyles.cardTitle.copyWith(fontSize: 16),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
@@ -768,7 +768,7 @@ class _TaskCard extends StatelessWidget {
               Expanded(
                 child: AppMetaItem(
                   icon: Icons.currency_ruble_rounded,
-                  label: 'Р РЋРЎС“Р СР СР В°',
+                  label: 'Сумма',
                   value: amount,
                 ),
               ),
@@ -776,7 +776,7 @@ class _TaskCard extends StatelessWidget {
               Expanded(
                 child: AppMetaItem(
                   icon: CupertinoIcons.calendar_today,
-                  label: 'Р вЂќР ВµР Т‘Р В»Р В°Р в„–Р Р…',
+                  label: 'Дедлайн',
                   value: deadline,
                 ),
               ),
@@ -800,7 +800,7 @@ class _TaskCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Р СџР В»Р В°Р Р…: ${estimatedTime}РЎвЂЎ Р’В· Р СџР С•РЎвЂљРЎР‚Р В°РЎвЂЎР ВµР Р…Р С•: ${timeSpent}РЎвЂЎ',
+            'План: ${estimatedTime}ч · Потрачено: ${timeSpent}ч',
             style: AppTextStyles.caption,
           ),
         ],
