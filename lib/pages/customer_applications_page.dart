@@ -25,8 +25,10 @@ class _ReqItem {
   final String? orderId;
   final String? executorId;
   final String? taskId;
-  final int? complexityAuto;
+  final int? orderComplexityAuto;
   final int? complexityProposed;
+  final int? complexityFinal;
+  final String? complexitySource;
   final String? complexityReason;
 
   _ReqItem({
@@ -41,8 +43,10 @@ class _ReqItem {
     this.orderId,
     this.executorId,
     this.taskId,
-    this.complexityAuto,
+    this.orderComplexityAuto,
     this.complexityProposed,
+    this.complexityFinal,
+    this.complexitySource,
     this.complexityReason,
   });
 }
@@ -134,15 +138,21 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -174,6 +184,13 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
   bool _isPending(String status) {
     return status.trim().toLowerCase() == 'pending';
+  }
+
+  int? _intValue(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toInt();
+
+    return int.tryParse(value.toString());
   }
 
   Future<Map<String, dynamic>?> _getRecordData(
@@ -285,6 +302,29 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     }
   }
 
+  int _resolveFinalComplexity(_ReqItem item) {
+    final auto = (item.orderComplexityAuto ?? 3).clamp(1, 5).toInt();
+    final proposed = item.complexityProposed;
+
+    if (proposed == null) return auto;
+
+    return OrderComplexityService.clampProposedComplexity(
+      autoComplexity: auto,
+      proposedComplexity: proposed,
+    );
+  }
+
+  String _resolveComplexitySource(_ReqItem item) {
+    final auto = (item.orderComplexityAuto ?? 3).clamp(1, 5).toInt();
+    final finalComplexity = _resolveFinalComplexity(item);
+
+    if (finalComplexity == auto) {
+      return 'auto';
+    }
+
+    return 'executor_adjusted';
+  }
+
   Future<void> _loadAll() async {
     setState(() {
       _loading = true;
@@ -358,10 +398,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
       final executor = await _getRecordData('users', executorId);
       final taskId = orderId == null ? null : await _taskIdForOrder(orderId);
-      final complexityAuto = (order['complexity_auto'] as num?)?.toInt();
-      final complexityProposed =
-          (app.data['complexity_proposed'] as num?)?.toInt() ?? complexityAuto;
-      final complexityReason = app.data['complexity_reason'] as String? ?? '';
+      final task = await _getRecordData('tasks', taskId);
 
       loaded.add(
         _ReqItem(
@@ -381,9 +418,11 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
           orderId: orderId,
           executorId: executorId,
           taskId: taskId,
-          complexityAuto: complexityAuto,
-          complexityProposed: complexityProposed,
-          complexityReason: complexityReason,
+          orderComplexityAuto: _intValue(order['complexity_auto']),
+          complexityProposed: _intValue(app.data['complexity_proposed']),
+          complexityReason: app.data['complexity_reason'] as String?,
+          complexityFinal: _intValue(task?['complexity_final']),
+          complexitySource: task?['complexity_source'] as String?,
         ),
       );
     }
@@ -436,6 +475,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
               (task['payment_amount'] as num?)?.toDouble(),
           taskId: taskId,
           orderId: orderId,
+          complexityFinal: _intValue(task['complexity_final']),
+          complexitySource: task['complexity_source'] as String?,
         ),
       );
     }
@@ -549,19 +590,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       'unpaid',
     ]);
 
-    final orderComplexityAuto = (order?['complexity_auto'] as num?)?.toInt();
-    final proposedComplexity =
-        item.complexityProposed ?? item.complexityAuto ?? orderComplexityAuto;
-    final complexityFinal =
-        proposedComplexity == null
-            ? null
-            : proposedComplexity.clamp(1, 5).toInt();
-    final complexitySource =
-        complexityFinal != null &&
-                orderComplexityAuto != null &&
-                complexityFinal != orderComplexityAuto
-            ? 'executor_adjusted'
-            : 'auto';
+    final finalComplexity = _resolveFinalComplexity(item);
+    final complexitySource = _resolveComplexitySource(item);
 
     await pb
         .collection('tasks')
@@ -574,8 +604,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
             'estimated_time': 0,
             'time_spent': 0,
             'payment_amount': item.amount ?? 0,
-            if (complexityFinal != null) 'complexity_final': complexityFinal,
-            if (complexityFinal != null) 'complexity_source': complexitySource,
+            'complexity_final': finalComplexity,
+            'complexity_source': complexitySource,
           },
         );
   }
@@ -598,12 +628,11 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       'done',
     ]);
 
+    if (paidStatusId == null) return;
+
     await pb
         .collection('tasks')
-        .update(
-          item.taskId!,
-          body: {if (paidStatusId != null) 'payment_status_id': paidStatusId},
-        );
+        .update(item.taskId!, body: {'payment_status_id': paidStatusId});
   }
 
   void _openTaskDetails(_ReqItem item) {
@@ -633,7 +662,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
           (ctx) => AlertDialog(
             title: const Text('Отклонить все ожидающие заявки?'),
             content: const Text(
-              'Все pending-заявки и pending-запросы оплаты будут отклонены.',
+              'Все ожидающие заявки и запросы оплаты будут отклонены.',
             ),
             actions: [
               TextButton(
@@ -1188,8 +1217,21 @@ class _RequestCard extends StatelessWidget {
   bool get _canLeaveFeedback =>
       item.type == _ReqType.payment && _approved && _hasTask;
 
+  int? get _visibleComplexity {
+    return item.complexityFinal ??
+        item.complexityProposed ??
+        item.orderComplexityAuto;
+  }
+
+  String? get _visibleComplexitySource {
+    return item.complexitySource ??
+        (item.complexityProposed != null ? 'executor_adjusted' : 'auto');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final complexity = _visibleComplexity;
+
     return AppSurfaceCard(
       onTap: _hasTask ? onOpenTask : null,
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
@@ -1240,19 +1282,11 @@ class _RequestCard extends StatelessWidget {
               statusPill,
               if (item.type == _ReqType.payment)
                 AppTag(icon: Icons.currency_ruble_rounded, label: amountText),
-              if (item.complexityProposed != null)
+              if (complexity != null)
                 AppTag(
                   icon: Icons.bar_chart_rounded,
                   label:
-                      'Сложность ${item.complexityProposed}/5 · ${OrderComplexityService.complexityLabel(item.complexityProposed)}',
-                ),
-              if (item.type == _ReqType.application &&
-                  item.complexityAuto != null &&
-                  item.complexityProposed != null &&
-                  item.complexityAuto != item.complexityProposed)
-                AppTag(
-                  icon: Icons.tune_rounded,
-                  label: 'Система ${item.complexityAuto}/5',
+                      'Сложность $complexity/5 · ${OrderComplexityService.sourceLabel(_visibleComplexitySource)}',
                 ),
               if (_hasTask)
                 const AppTag(
@@ -1261,13 +1295,11 @@ class _RequestCard extends StatelessWidget {
                 ),
             ],
           ),
-          if (item.type == _ReqType.application &&
-              item.complexityReason != null &&
-              item.complexityReason!.trim().isNotEmpty) ...[
+          if ((item.complexityReason ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
               'Причина изменения сложности: ${item.complexityReason}',
-              style: AppTextStyles.caption,
+              style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
             ),
           ],
           if (_pending) ...[

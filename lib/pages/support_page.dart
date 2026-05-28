@@ -1,5 +1,7 @@
 // lib/pages/support_page.dart
 
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -25,7 +27,10 @@ class _SupportPageState extends State<SupportPage> {
   String _sortOrder = 'Newest';
 
   bool _loading = true;
+  bool _silentRefreshing = false;
   String? _error;
+
+  Timer? _refreshDebounce;
 
   List<Map<String, dynamic>> _requests = [];
 
@@ -37,12 +42,51 @@ class _SupportPageState extends State<SupportPage> {
   void initState() {
     super.initState();
     _loadAll();
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
+    _refreshDebounce?.cancel();
+
+    final pb = PocketBaseService.instance.pb;
+    pb.collection('support_requests').unsubscribe('*');
+    pb.collection('support_requests_messages').unsubscribe('*');
+    pb.collection('support_request_attachments').unsubscribe('*');
+
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _subscribeRealtime() async {
+    final pb = PocketBaseService.instance.pb;
+
+    Future<void> onAnyChange(dynamic _) async {
+      _scheduleSilentRefresh();
+    }
+
+    await pb.collection('support_requests').subscribe('*', onAnyChange);
+    await pb
+        .collection('support_requests_messages')
+        .subscribe('*', onAnyChange);
+    await pb
+        .collection('support_request_attachments')
+        .subscribe('*', onAnyChange);
+  }
+
+  void _scheduleSilentRefresh() {
+    _refreshDebounce?.cancel();
+
+    _refreshDebounce = Timer(const Duration(milliseconds: 350), () async {
+      if (!mounted || _silentRefreshing) return;
+
+      _silentRefreshing = true;
+      try {
+        await _loadAll(showLoader: false);
+      } finally {
+        _silentRefreshing = false;
+      }
+    });
   }
 
   String? _relationId(dynamic value) {
@@ -103,15 +147,21 @@ class _SupportPageState extends State<SupportPage> {
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -144,7 +194,7 @@ class _SupportPageState extends State<SupportPage> {
 
       return {
         'id': record.id,
-        'created': record.get<String>('created'),
+        'created': record.get<String>('created') ?? '',
         ...record.data,
       };
     } catch (_) {
@@ -152,11 +202,13 @@ class _SupportPageState extends State<SupportPage> {
     }
   }
 
-  Future<void> _loadAll() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadAll({bool showLoader = true}) async {
+    if (showLoader) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final service = PocketBaseService.instance;
@@ -169,13 +221,13 @@ class _SupportPageState extends State<SupportPage> {
 
       final user = await pb.collection('users').getOne(userId);
 
-      _role = _roleFromUser(user.data);
-      _name =
+      final role = _roleFromUser(user.data);
+      final name =
           user.data['name'] as String? ??
           user.data['email'] as String? ??
           'User';
 
-      _photo = _fileUrl(
+      final photo = _fileUrl(
         collectionName: 'users',
         recordId: user.id,
         fileValue: user.data['photo'],
@@ -190,7 +242,7 @@ class _SupportPageState extends State<SupportPage> {
       for (final record in requestResult.items) {
         final requestUserId = _relationId(record.data['user_id']);
 
-        if (_role != 'support' && requestUserId != userId) {
+        if (role != 'support' && requestUserId != userId) {
           continue;
         }
 
@@ -208,7 +260,7 @@ class _SupportPageState extends State<SupportPage> {
         result.add({
           'id': record.id,
           'reason': record.data['reason'] as String? ?? '',
-          'created': record.get<String>('created'),
+          'created': record.get<String>('created') ?? '',
           'user_id': requestUserId,
           'user_name':
               requestUser?['name'] as String? ??
@@ -229,11 +281,23 @@ class _SupportPageState extends State<SupportPage> {
         return db.compareTo(da);
       });
 
-      _requests = result;
+      if (!mounted) return;
+
+      setState(() {
+        _role = role;
+        _name = name;
+        _photo = photo;
+        _requests = result;
+        _error = null;
+      });
     } catch (e) {
-      _error = 'Не удалось загрузить обращения: $e';
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Не удалось загрузить обращения: $e';
+      });
     } finally {
-      if (mounted) {
+      if (mounted && showLoader) {
         setState(() => _loading = false);
       }
     }
@@ -244,11 +308,14 @@ class _SupportPageState extends State<SupportPage> {
 
     var list =
         _requests.where((request) {
-          final reason = (request['reason'] as String? ?? '').toLowerCase();
-          final userName =
-              (request['user_name'] as String? ?? '').toLowerCase();
+          final reason = request['reason'] as String? ?? '';
+          final userName = request['user_name'] as String? ?? '';
+          final createdAt = _formatDate(request['created'] as String?);
 
-          return reason.contains(query) || userName.contains(query);
+          final haystack =
+              [reason, userName, createdAt].join(' ').toLowerCase();
+
+          return haystack.contains(query);
         }).toList();
 
     if (_sortOrder == 'Oldest') {
@@ -400,7 +467,7 @@ class _SupportPageState extends State<SupportPage> {
                                 sliver: SliverToBoxAdapter(
                                   child: AppSearchField(
                                     controller: _searchController,
-                                    hint: 'Поиск по обращениям',
+                                    hint: 'Поиск по теме, пользователю, дате',
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ),

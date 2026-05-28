@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_file_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
@@ -80,18 +81,31 @@ class _TasksPageState extends State<TasksPage> {
     return null;
   }
 
+  int? _intValue(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toInt();
+
+    return int.tryParse(value.toString());
+  }
+
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -225,7 +239,8 @@ class _TasksPageState extends State<TasksPage> {
           'estimated_time': record.data['estimated_time'],
           'time_spent': record.data['time_spent'],
           'payment_amount': record.data['payment_amount'],
-          'complexity_final': record.data['complexity_final'],
+          'complexity_final': _intValue(record.data['complexity_final']),
+          'complexity_source': record.data['complexity_source'] as String?,
         });
       }
 
@@ -310,10 +325,13 @@ class _TasksPageState extends State<TasksPage> {
           final status = (task['status'] as String? ?? '').toLowerCase();
           final payment =
               (task['payment_status'] as String? ?? '').toLowerCase();
+          final complexity =
+              (task['complexity_final']?.toString() ?? '').toLowerCase();
 
           return title.contains(query) ||
               status.contains(query) ||
-              payment.contains(query);
+              payment.contains(query) ||
+              complexity.contains(query);
         }).toList();
 
     switch (_sortOrder) {
@@ -421,7 +439,7 @@ class _TasksPageState extends State<TasksPage> {
                     children: [
                       AppTopBar(
                         title: 'Мои задачи',
-                        subtitle: 'Текущие работы и оплата',
+                        subtitle: 'Текущие работы, сложность и оплата',
                         onMenu: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
@@ -576,8 +594,10 @@ class _TasksPageState extends State<TasksPage> {
                                               task['time_spent']?.toString() ??
                                               '0',
                                           complexityFinal:
-                                              (task['complexity_final'] as num?)
-                                                  ?.toInt(),
+                                              task['complexity_final'] as int?,
+                                          complexitySource:
+                                              task['complexity_source']
+                                                  as String?,
                                           onTap: () => _openTask(id),
                                         );
                                       },
@@ -725,6 +745,7 @@ class _TaskCard extends StatelessWidget {
   final String estimatedTime;
   final String timeSpent;
   final int? complexityFinal;
+  final String? complexitySource;
   final VoidCallback onTap;
 
   const _TaskCard({
@@ -736,6 +757,7 @@ class _TaskCard extends StatelessWidget {
     required this.estimatedTime,
     required this.timeSpent,
     required this.complexityFinal,
+    required this.complexitySource,
     required this.onTap,
   });
 
@@ -779,22 +801,9 @@ class _TaskCard extends StatelessWidget {
     );
   }
 
-  AppStatusPill? _complexityPill() {
-    final value = complexityFinal;
-    if (value == null) return null;
-
-    final normalized = value.clamp(1, 5).toInt();
-
-    return AppStatusPill(
-      text: 'Сложность $normalized/5',
-      color: AppColors.accent,
-      icon: CupertinoIcons.chart_bar_alt_fill,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final complexityPill = _complexityPill();
+    final complexity = complexityFinal?.clamp(1, 5).toInt();
 
     return AppSurfaceCard(
       onTap: onTap,
@@ -815,7 +824,12 @@ class _TaskCard extends StatelessWidget {
             children: [
               _taskStatusPill(),
               _paymentStatusPill(),
-              if (complexityPill != null) complexityPill,
+              if (complexity != null)
+                AppTag(
+                  icon: Icons.bar_chart_rounded,
+                  label:
+                      'Сложность $complexity/5 · ${OrderComplexityService.sourceLabel(complexitySource)}',
+                ),
             ],
           ),
           const SizedBox(height: 14),

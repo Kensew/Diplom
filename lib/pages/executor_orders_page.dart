@@ -1,5 +1,7 @@
 // lib/pages/executor_orders_page.dart
 
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -29,7 +31,10 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
   String? _filterDeadline;
 
   bool _loading = true;
+  bool _silentRefreshing = false;
   String? _error;
+
+  Timer? _refreshDebounce;
 
   List<Map<String, dynamic>> _orders = [];
   List<String> _frameworks = [];
@@ -43,12 +48,51 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
   void initState() {
     super.initState();
     _loadAll();
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
+    _refreshDebounce?.cancel();
+
+    final pb = PocketBaseService.instance.pb;
+    pb.collection('orders').unsubscribe('*');
+    pb.collection('applications').unsubscribe('*');
+    pb.collection('tasks').unsubscribe('*');
+    pb.collection('frameworks').unsubscribe('*');
+    pb.collection('languages').unsubscribe('*');
+
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _subscribeRealtime() async {
+    final pb = PocketBaseService.instance.pb;
+
+    Future<void> onAnyChange(dynamic _) async {
+      _scheduleSilentRefresh();
+    }
+
+    await pb.collection('orders').subscribe('*', onAnyChange);
+    await pb.collection('applications').subscribe('*', onAnyChange);
+    await pb.collection('tasks').subscribe('*', onAnyChange);
+    await pb.collection('frameworks').subscribe('*', onAnyChange);
+    await pb.collection('languages').subscribe('*', onAnyChange);
+  }
+
+  void _scheduleSilentRefresh() {
+    _refreshDebounce?.cancel();
+
+    _refreshDebounce = Timer(const Duration(milliseconds: 350), () async {
+      if (!mounted || _silentRefreshing) return;
+
+      _silentRefreshing = true;
+      try {
+        await _loadAll(showLoader: false);
+      } finally {
+        _silentRefreshing = false;
+      }
+    });
   }
 
   String? _relationId(dynamic value) {
@@ -73,15 +117,21 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -122,11 +172,32 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
     }
   }
 
-  Future<void> _loadAll() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<Set<String>> _appliedOrderIdsForExecutor(String executorId) async {
+    final result = await PocketBaseService.instance.pb
+        .collection('applications')
+        .getList(page: 1, perPage: 200);
+
+    final ids = <String>{};
+
+    for (final app in result.items) {
+      final appExecutorId = _relationId(app.data['executor_id']);
+      final orderId = _relationId(app.data['order_id']);
+
+      if (appExecutorId == executorId && orderId != null) {
+        ids.add(orderId);
+      }
+    }
+
+    return ids;
+  }
+
+  Future<void> _loadAll({bool showLoader = true}) async {
+    if (showLoader) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final service = PocketBaseService.instance;
@@ -139,17 +210,19 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
 
       final user = await pb.collection('users').getOne(userId);
 
-      _role = _roleFromUser(user.data);
-      _name =
+      final role = _roleFromUser(user.data);
+      final name =
           user.data['name'] as String? ??
           user.data['email'] as String? ??
           'User';
 
-      _photo = PocketBaseFileService.fileUrl(
+      final photo = PocketBaseFileService.fileUrl(
         collectionName: 'users',
         recordId: user.id,
         fileValue: user.data['photo'],
       );
+
+      final alreadyAppliedOrderIds = await _appliedOrderIdsForExecutor(userId);
 
       final orderResult = await pb
           .collection('orders')
@@ -160,9 +233,13 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
       final languageSet = <String>{};
 
       for (final record in orderResult.items) {
+        final orderId = record.id;
         final executorId = _relationId(record.data['executor_id']);
+        final customerId = _relationId(record.data['customer_id']);
 
         if (executorId != null) continue;
+        if (customerId == userId) continue;
+        if (alreadyAppliedOrderIds.contains(orderId)) continue;
 
         final frameworkId = _relationId(record.data['framework_id']);
         final languageId = _relationId(record.data['language_id']);
@@ -177,7 +254,7 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
         if (languageName != '—') languageSet.add(languageName);
 
         result.add({
-          'id': record.id,
+          'id': orderId,
           'created': record.get<String>('created') ?? '',
           'task_description': record.data['task_description'] as String? ?? '',
           'deadline': record.data['deadline'] as String?,
@@ -198,13 +275,25 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
         return db.compareTo(da);
       });
 
-      _orders = result;
-      _frameworks = frameworkSet.toList()..sort();
-      _languages = languageSet.toList()..sort();
+      if (!mounted) return;
+
+      setState(() {
+        _role = role;
+        _name = name;
+        _photo = photo;
+        _orders = result;
+        _frameworks = frameworkSet.toList()..sort();
+        _languages = languageSet.toList()..sort();
+        _error = null;
+      });
     } catch (e) {
-      _error = 'Не удалось загрузить данные: $e';
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Не удалось загрузить данные: $e';
+      });
     } finally {
-      if (mounted) {
+      if (mounted && showLoader) {
         setState(() => _loading = false);
       }
     }
@@ -282,18 +371,38 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
     }
   }
 
+  bool _matchesSearch(Map<String, dynamic> order, String query) {
+    if (query.isEmpty) return true;
+
+    final description = order['task_description'] as String? ?? '';
+    final framework = order['framework_name'] as String? ?? '';
+    final language = order['language_name'] as String? ?? '';
+    final deadline = _formatDate(order['deadline'] as String?);
+    final price = _formatMoney(_priceOf(order));
+
+    final haystack =
+        [
+          description,
+          framework,
+          language,
+          deadline,
+          price,
+          'свободный заказ без исполнителя',
+        ].join(' ').toLowerCase();
+
+    return haystack.contains(query);
+  }
+
   List<Map<String, dynamic>> get _filteredOrders {
     final query = _searchController.text.trim().toLowerCase();
 
     final list =
         _orders.where((order) {
-          final description =
-              (order['task_description'] as String? ?? '').toLowerCase();
           final framework = order['framework_name'] as String? ?? '';
           final language = order['language_name'] as String? ?? '';
           final deadline = _formatDate(order['deadline'] as String?);
 
-          return description.contains(query) &&
+          return _matchesSearch(order, query) &&
               (_filterFramework == null || framework == _filterFramework) &&
               (_filterLanguage == null || language == _filterLanguage) &&
               (_filterDeadline == null || deadline == _filterDeadline);
@@ -440,7 +549,7 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
                                 sliver: SliverToBoxAdapter(
                                   child: AppSearchField(
                                     controller: _searchController,
-                                    hint: 'Поиск по заказам',
+                                    hint: 'Поиск по описанию, языку, цене',
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ),
@@ -537,7 +646,7 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
                                     subtitle:
                                         hasActiveFilters
                                             ? 'Измени фильтры или поисковый запрос.'
-                                            : 'Когда появятся новые заказы без исполнителя, они будут показаны здесь.',
+                                            : 'Свободные заказы без твоей заявки будут показаны здесь.',
                                   ),
                                 )
                               else
@@ -651,7 +760,7 @@ class _ExecutorOverviewCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatCard(
-                  title: 'Всего',
+                  title: 'Свободно',
                   value: totalCount.toString(),
                   icon: Icons.inventory_2_outlined,
                 ),

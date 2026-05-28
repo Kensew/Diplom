@@ -34,6 +34,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
   String? _framework;
   String? _language;
   num? _price;
+
   int? _complexityAuto;
   String? _complexityFactorsRaw;
   int? _complexityProposed;
@@ -48,6 +49,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
 
   String? _taskId;
   bool _hasApplied = false;
+  String? _applicationStatus;
 
   String? _role;
   String? _name;
@@ -59,6 +61,12 @@ class _OrderMorePageState extends State<OrderMorePage> {
   void initState() {
     super.initState();
     _loadAll();
+  }
+
+  @override
+  void dispose() {
+    _complexityReasonCtrl.dispose();
+    super.dispose();
   }
 
   String? _relationId(dynamic value) {
@@ -129,15 +137,21 @@ class _OrderMorePageState extends State<OrderMorePage> {
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -225,6 +239,12 @@ class _OrderMorePageState extends State<OrderMorePage> {
     _description = order.data['task_description'] as String?;
     _price = order.data['price'] as num?;
 
+    _complexityAuto = (order.data['complexity_auto'] as num?)?.toInt();
+    _complexityFactorsRaw = order.data['complexity_factors']?.toString();
+
+    final baseComplexity = (_complexityAuto ?? 3).clamp(1, 5).toInt();
+    _complexityProposed ??= baseComplexity;
+
     final deadlineRaw = order.data['deadline'] as String?;
     _deadline = DateTime.tryParse(deadlineRaw ?? '')?.toLocal();
 
@@ -297,11 +317,13 @@ class _OrderMorePageState extends State<OrderMorePage> {
     });
 
     for (final record in attachments) {
-      final fileName = _firstFileName(record.data['url']) ?? 'Файл';
+      final fileValue = record.data['url'] ?? record.data['file'];
+      final fileName = _firstFileName(fileValue) ?? 'Файл';
+
       final url = _fileUrl(
         collectionName: 'order_attachments',
         recordId: record.id,
-        fileValue: record.data['url'],
+        fileValue: fileValue,
       );
 
       if (url == null) continue;
@@ -350,6 +372,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
     final userId = PocketBaseService.instance.currentUserId;
 
     _hasApplied = false;
+    _applicationStatus = null;
 
     if (userId == null) return;
 
@@ -362,10 +385,21 @@ class _OrderMorePageState extends State<OrderMorePage> {
       final executorId = _relationId(app.data['executor_id']);
       final status = app.data['status']?.toString().trim().toLowerCase();
 
-      if (orderId == widget.orderId &&
-          executorId == userId &&
-          status != 'rejected') {
-        _hasApplied = true;
+      if (orderId == widget.orderId && executorId == userId) {
+        _applicationStatus = status ?? 'pending';
+
+        if (status != 'rejected') {
+          _hasApplied = true;
+
+          final proposed = (app.data['complexity_proposed'] as num?)?.toInt();
+          if (proposed != null) {
+            _complexityProposed = proposed.clamp(1, 5).toInt();
+          }
+
+          _complexityReasonCtrl.text =
+              app.data['complexity_reason'] as String? ?? '';
+        }
+
         return;
       }
     }
@@ -399,7 +433,8 @@ class _OrderMorePageState extends State<OrderMorePage> {
       if (_hasApplied) {
         throw 'Заявка уже отправлена';
       }
-      final autoComplexity = (_complexityAuto ?? 3).clamp(1, 5);
+
+      final autoComplexity = (_complexityAuto ?? 3).clamp(1, 5).toInt();
       final proposedComplexity = OrderComplexityService.clampProposedComplexity(
         autoComplexity: autoComplexity,
         proposedComplexity: _complexityProposed ?? autoComplexity,
@@ -521,12 +556,14 @@ class _OrderMorePageState extends State<OrderMorePage> {
         _role == 'support';
   }
 
-  bool get _canCheckTask {
+  bool get _canOpenTask {
     final currentUserId = PocketBaseService.instance.currentUserId;
 
     return _taskId != null &&
         currentUserId != null &&
-        currentUserId == _executorId;
+        (currentUserId == _customerId ||
+            currentUserId == _executorId ||
+            _role == 'support');
   }
 
   void _goBack() {
@@ -567,7 +604,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
                     children: [
                       AppTopBar(
                         title: 'Детали заказа',
-                        subtitle: 'Описание, вложения и действия',
+                        subtitle: 'Описание, сложность, вложения и действия',
                         onBack: _goBack,
                         onRefresh: _loadAll,
                       ),
@@ -588,6 +625,20 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                 price: _formatMoney(_price),
                                 assigned: _executorId != null,
                                 hasApplied: _hasApplied,
+                                applicationStatus: _applicationStatus,
+                              ),
+                              const SizedBox(height: 12),
+                              _OrderComplexityCard(
+                                autoComplexity: _complexityAuto,
+                                factorsRaw: _complexityFactorsRaw,
+                                proposedComplexity: _complexityProposed,
+                                reasonCtrl: _complexityReasonCtrl,
+                                canEdit: _canApply,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _complexityProposed = value;
+                                  });
+                                },
                               ),
                               const SizedBox(height: 12),
                               _CustomerCard(
@@ -627,7 +678,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                 hasApplied: _hasApplied,
                                 assigned: _executorId != null,
                                 canOpenChat: _canOpenChat,
-                                canCheckTask: _canCheckTask,
+                                canOpenTask: _canOpenTask,
                                 onApply: _apply,
                                 onOpenChat:
                                     _taskId == null
@@ -637,11 +688,13 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                             '/tasks/communication/$_taskId',
                                           );
                                         },
-                                onCheckTask:
+                                onOpenTask:
                                     _taskId == null
                                         ? null
                                         : () {
-                                          context.push('/tasks/check/$_taskId');
+                                          context.push(
+                                            '/tasks/details/$_taskId',
+                                          );
                                         },
                               ),
                             ],
@@ -678,6 +731,7 @@ class _OrderMainCard extends StatelessWidget {
   final String price;
   final bool assigned;
   final bool hasApplied;
+  final String? applicationStatus;
 
   const _OrderMainCard({
     required this.description,
@@ -687,10 +741,28 @@ class _OrderMainCard extends StatelessWidget {
     required this.price,
     required this.assigned,
     required this.hasApplied,
+    required this.applicationStatus,
   });
 
   @override
   Widget build(BuildContext context) {
+    final status =
+        assigned
+            ? AppStatusPill.success('Исполнитель назначен')
+            : hasApplied
+            ? AppStatusPill.pending(
+              applicationStatus == 'approved'
+                  ? 'Заявка принята'
+                  : applicationStatus == 'rejected'
+                  ? 'Заявка отклонена'
+                  : 'Заявка отправлена',
+            )
+            : const AppStatusPill(
+              text: 'Ожидает исполнителя',
+              color: AppColors.textMuted,
+              icon: CupertinoIcons.clock,
+            );
+
     return AppSurfaceCard(
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -709,15 +781,7 @@ class _OrderMainCard extends StatelessWidget {
             children: [
               AppTag(icon: Icons.view_in_ar_outlined, label: framework),
               AppTag(icon: Icons.code_rounded, label: language),
-              assigned
-                  ? AppStatusPill.success('Исполнитель назначен')
-                  : hasApplied
-                  ? AppStatusPill.pending('Заявка отправлена')
-                  : const AppStatusPill(
-                    text: 'Ожидает исполнителя',
-                    color: AppColors.textMuted,
-                    icon: CupertinoIcons.clock,
-                  ),
+              status,
             ],
           ),
           const SizedBox(height: 14),
@@ -767,8 +831,8 @@ class _OrderComplexityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = (autoComplexity ?? 3).clamp(1, 5);
-    final selected = (proposedComplexity ?? base).clamp(1, 5);
+    final base = (autoComplexity ?? 3).clamp(1, 5).toInt();
+    final selected = (proposedComplexity ?? base).clamp(1, 5).toInt();
     final allowedValues = OrderComplexityService.allowedProposedValues(base);
     final factors = OrderComplexityService.parseFactors(factorsRaw);
     final changed = selected != base;
@@ -792,7 +856,7 @@ class _OrderComplexityCard extends StatelessWidget {
                   border: Border.all(color: AppColors.border),
                 ),
                 child: Text(
-                  '${autoComplexity ?? base}/5',
+                  '$base/5',
                   style: AppTextStyles.sectionTitle.copyWith(
                     color: AppColors.accent,
                   ),
@@ -804,9 +868,7 @@ class _OrderComplexityCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      OrderComplexityService.complexityLabel(
-                        autoComplexity ?? base,
-                      ),
+                      OrderComplexityService.complexityLabel(base),
                       style: AppTextStyles.cardTitle,
                     ),
                     const SizedBox(height: 4),
@@ -1139,10 +1201,10 @@ class _OrderActionsCard extends StatelessWidget {
   final bool hasApplied;
   final bool assigned;
   final bool canOpenChat;
-  final bool canCheckTask;
+  final bool canOpenTask;
   final VoidCallback onApply;
   final VoidCallback? onOpenChat;
-  final VoidCallback? onCheckTask;
+  final VoidCallback? onOpenTask;
 
   const _OrderActionsCard({
     required this.applying,
@@ -1150,10 +1212,10 @@ class _OrderActionsCard extends StatelessWidget {
     required this.hasApplied,
     required this.assigned,
     required this.canOpenChat,
-    required this.canCheckTask,
+    required this.canOpenTask,
     required this.onApply,
     required this.onOpenChat,
-    required this.onCheckTask,
+    required this.onOpenTask,
   });
 
   @override
@@ -1196,12 +1258,12 @@ class _OrderActionsCard extends StatelessWidget {
               label: const Text('Открыть чат'),
             ),
           ],
-          if (canCheckTask) ...[
+          if (canOpenTask) ...[
             const SizedBox(height: 10),
             OutlinedButton.icon(
-              onPressed: onCheckTask,
+              onPressed: onOpenTask,
               icon: const Icon(Icons.fact_check_outlined),
-              label: const Text('Проверить задачу'),
+              label: const Text('Открыть задачу'),
             ),
           ],
         ],

@@ -1,5 +1,7 @@
 // lib/pages/customer_orders_page.dart
 
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -23,6 +25,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
   final _fmt = DateFormat('dd.MM.yyyy');
 
   bool _loading = true;
+  bool _silentRefreshing = false;
   String? _error;
 
   String _sort = 'Newest';
@@ -34,6 +37,8 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
   String? _name;
   String? _photo;
 
+  Timer? _refreshDebounce;
+
   List<Map<String, dynamic>> _orders = [];
   List<String> _frameworks = [];
   List<String> _languages = [];
@@ -42,12 +47,53 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
   void initState() {
     super.initState();
     _loadAll();
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
+    _refreshDebounce?.cancel();
+
+    final pb = PocketBaseService.instance.pb;
+    pb.collection('orders').unsubscribe('*');
+    pb.collection('applications').unsubscribe('*');
+    pb.collection('tasks').unsubscribe('*');
+    pb.collection('payment_requests').unsubscribe('*');
+    pb.collection('frameworks').unsubscribe('*');
+    pb.collection('languages').unsubscribe('*');
+
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _subscribeRealtime() async {
+    final pb = PocketBaseService.instance.pb;
+
+    Future<void> onAnyChange(dynamic _) async {
+      _scheduleSilentRefresh();
+    }
+
+    await pb.collection('orders').subscribe('*', onAnyChange);
+    await pb.collection('applications').subscribe('*', onAnyChange);
+    await pb.collection('tasks').subscribe('*', onAnyChange);
+    await pb.collection('payment_requests').subscribe('*', onAnyChange);
+    await pb.collection('frameworks').subscribe('*', onAnyChange);
+    await pb.collection('languages').subscribe('*', onAnyChange);
+  }
+
+  void _scheduleSilentRefresh() {
+    _refreshDebounce?.cancel();
+
+    _refreshDebounce = Timer(const Duration(milliseconds: 350), () async {
+      if (!mounted || _silentRefreshing) return;
+
+      _silentRefreshing = true;
+      try {
+        await _loadAll(showLoader: false);
+      } finally {
+        _silentRefreshing = false;
+      }
+    });
   }
 
   String? _relationId(dynamic value) {
@@ -108,15 +154,21 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
   String _roleFallbackByEmail(String email) {
     final normalized = email.trim().toLowerCase();
 
-    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+    if (normalized == 'customer@test.ru' ||
+        normalized == 'dev1@test.local' ||
+        normalized == '1') {
       return 'customer';
     }
 
-    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+    if (normalized == 'support@test.ru' ||
+        normalized == 'dev3@test.local' ||
+        normalized == '3') {
       return 'support';
     }
 
-    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+    if (normalized == 'executor@test.ru' ||
+        normalized == 'dev2@test.local' ||
+        normalized == '2') {
       return 'executor';
     }
 
@@ -157,11 +209,21 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     }
   }
 
-  Future<void> _loadAll() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<List<dynamic>> _getAllRecords(String collection) async {
+    final result = await PocketBaseService.instance.pb
+        .collection(collection)
+        .getList(page: 1, perPage: 200);
+
+    return result.items;
+  }
+
+  Future<void> _loadAll({bool showLoader = true}) async {
+    if (showLoader) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final service = PocketBaseService.instance;
@@ -174,13 +236,13 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
       final user = await pb.collection('users').getOne(userId);
 
-      _role = _roleFromUser(user.data);
-      _name =
+      final role = _roleFromUser(user.data);
+      final name =
           user.data['name'] as String? ??
           user.data['email'] as String? ??
           'User';
 
-      _photo = _fileUrl(
+      final photo = _fileUrl(
         collectionName: 'users',
         recordId: user.id,
         fileValue: user.data['photo'],
@@ -205,9 +267,12 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
         final framework = await _getRecordData('frameworks', frameworkId);
         final language = await _getRecordData('languages', languageId);
+        final executor = await _getRecordData('users', executorId);
 
         final frameworkName = framework?['name'] as String? ?? '—';
         final languageName = language?['name'] as String? ?? '—';
+        final executorName =
+            executor?['name'] as String? ?? executor?['email'] as String?;
 
         if (frameworkName != '—') frameworkSet.add(frameworkName);
         if (languageName != '—') languageSet.add(languageName);
@@ -218,6 +283,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
           'task_description': record.data['task_description'] as String? ?? '',
           'deadline': record.data['deadline'] as String?,
           'executor_id': executorId,
+          'executor_name': executorName,
           'price': record.data['price'],
           'framework_name': frameworkName,
           'language_name': languageName,
@@ -235,13 +301,25 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
         return db.compareTo(da);
       });
 
-      _orders = result;
-      _frameworks = frameworkSet.toList()..sort();
-      _languages = languageSet.toList()..sort();
+      if (!mounted) return;
+
+      setState(() {
+        _role = role;
+        _name = name;
+        _photo = photo;
+        _orders = result;
+        _frameworks = frameworkSet.toList()..sort();
+        _languages = languageSet.toList()..sort();
+        _error = null;
+      });
     } catch (e) {
-      _error = 'Не удалось загрузить заказы: $e';
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Не удалось загрузить заказы: $e';
+      });
     } finally {
-      if (mounted) {
+      if (mounted && showLoader) {
         setState(() => _loading = false);
       }
     }
@@ -253,7 +331,9 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
       builder:
           (_) => AlertDialog(
             title: const Text('Удалить заказ?'),
-            content: const Text('Заказ будет удалён из базы данных.'),
+            content: const Text(
+              'Заказ и связанные заявки, задачи, оплаты, сообщения, вложения и отзывы будут удалены.',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -272,14 +352,85 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     setState(() => _loading = true);
 
     try {
+      await _deleteRelatedData(orderId);
       await PocketBaseService.instance.pb.collection('orders').delete(orderId);
-      await _loadAll();
+      await _loadAll(showLoader: false);
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Ошибка при удалении: $e')));
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _deleteRelatedData(String orderId) async {
+    final pb = PocketBaseService.instance.pb;
+
+    final tasks = await _getAllRecords('tasks');
+    for (final task in tasks) {
+      final taskOrderId = _relationId(task.data['order_id']);
+      if (taskOrderId != orderId) continue;
+
+      final taskId = task.id;
+
+      final paymentRequests = await _getAllRecords('payment_requests');
+      for (final payment in paymentRequests) {
+        final paymentTaskId = _relationId(payment.data['task_id']);
+        if (paymentTaskId == taskId) {
+          await pb.collection('payment_requests').delete(payment.id);
+        }
+      }
+
+      final messages = await _getAllRecords('tasks_messages');
+      for (final message in messages) {
+        final messageTaskId = _relationId(message.data['task_id']);
+        if (messageTaskId != taskId) continue;
+
+        final attachments = await _getAllRecords('task_message_attachments');
+        for (final attachment in attachments) {
+          final attachmentMessageId = _relationId(
+            attachment.data['task_message_id'],
+          );
+          if (attachmentMessageId == message.id) {
+            await pb
+                .collection('task_message_attachments')
+                .delete(attachment.id);
+          }
+        }
+
+        await pb.collection('tasks_messages').delete(message.id);
+      }
+
+      await pb.collection('tasks').delete(taskId);
+    }
+
+    final applications = await _getAllRecords('applications');
+    for (final application in applications) {
+      final appOrderId = _relationId(application.data['order_id']);
+      if (appOrderId == orderId) {
+        await pb.collection('applications').delete(application.id);
+      }
+    }
+
+    final orderAttachments = await _getAllRecords('order_attachments');
+    for (final attachment in orderAttachments) {
+      final attachmentOrderId = _relationId(attachment.data['order_id']);
+      if (attachmentOrderId == orderId) {
+        await pb.collection('order_attachments').delete(attachment.id);
+      }
+    }
+
+    final feedbacks = await _getAllRecords('feedbacks');
+    for (final feedback in feedbacks) {
+      final feedbackOrderId = _relationId(feedback.data['order_id']);
+      if (feedbackOrderId == orderId) {
+        await pb.collection('feedbacks').delete(feedback.id);
+      }
     }
   }
 
@@ -358,18 +509,44 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     }
   }
 
+  bool _matchesSearch(Map<String, dynamic> order, String query) {
+    if (query.isEmpty) return true;
+
+    final description = order['task_description'] as String? ?? '';
+    final framework = order['framework_name'] as String? ?? '';
+    final language = order['language_name'] as String? ?? '';
+    final deadline = _formatDate(order['deadline'] as String?);
+    final price = _formatMoney(_priceOf(order));
+    final executorName = order['executor_name'] as String? ?? '';
+    final status =
+        _hasExecutor(order)
+            ? 'исполнитель назначен назначен $executorName'
+            : 'ожидает исполнителя без исполнителя';
+
+    final haystack =
+        [
+          description,
+          framework,
+          language,
+          deadline,
+          price,
+          executorName,
+          status,
+        ].join(' ').toLowerCase();
+
+    return haystack.contains(query);
+  }
+
   List<Map<String, dynamic>> get _filteredOrders {
     final query = _searchController.text.trim().toLowerCase();
 
     final list =
         _orders.where((order) {
-          final description =
-              (order['task_description'] as String? ?? '').toLowerCase();
           final framework = order['framework_name'] as String? ?? '';
           final language = order['language_name'] as String? ?? '';
           final deadline = _formatDate(order['deadline'] as String?);
 
-          return description.contains(query) &&
+          return _matchesSearch(order, query) &&
               (_filterFramework == null || framework == _filterFramework) &&
               (_filterLanguage == null || language == _filterLanguage) &&
               (_filterDeadline == null || deadline == _filterDeadline);
@@ -536,7 +713,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                 sliver: SliverToBoxAdapter(
                                   child: AppSearchField(
                                     controller: _searchController,
-                                    hint: 'Поиск по заказам',
+                                    hint: 'Поиск по описанию, языку, статусу',
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ),
@@ -679,6 +856,8 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                           ),
                                           price: _formatMoney(_priceOf(order)),
                                           assigned: _hasExecutor(order),
+                                          executorName:
+                                              order['executor_name'] as String?,
                                           onTap: () => _openOrder(id),
                                           onDelete: () => _deleteOrder(id),
                                         );
@@ -899,6 +1078,7 @@ class _CustomerOrderCard extends StatelessWidget {
   final String deadline;
   final String price;
   final bool assigned;
+  final String? executorName;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
@@ -909,12 +1089,18 @@ class _CustomerOrderCard extends StatelessWidget {
     required this.deadline,
     required this.price,
     required this.assigned,
+    required this.executorName,
     required this.onTap,
     required this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
+    final assignedLabel =
+        executorName == null || executorName!.trim().isEmpty
+            ? 'Исполнитель назначен'
+            : 'Исполнитель: $executorName';
+
     return AppSurfaceCard(
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
@@ -962,7 +1148,7 @@ class _CustomerOrderCard extends StatelessWidget {
               AppTag(icon: Icons.view_in_ar_outlined, label: framework),
               AppTag(icon: Icons.code_rounded, label: language),
               assigned
-                  ? AppStatusPill.success('Исполнитель назначен')
+                  ? AppStatusPill.success(assignedLabel)
                   : const AppStatusPill(
                     text: 'Ожидает исполнителя',
                     color: AppColors.textMuted,

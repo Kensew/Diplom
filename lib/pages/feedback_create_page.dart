@@ -1,3 +1,5 @@
+// lib/pages/feedback_create_page.dart
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -22,6 +24,7 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
   bool _loading = true;
   bool _saving = false;
   bool _alreadyExists = false;
+
   String? _existingFeedbackId;
   String? _error;
 
@@ -251,6 +254,12 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
         throw 'Оставить отзыв может только участник задачи';
       }
 
+      if (reviewedUserId == null ||
+          reviewType == null ||
+          reviewedRole == null) {
+        throw 'Не удалось определить получателя отзыва';
+      }
+
       final reviewedUser = await _getRecordData('users', reviewedUserId);
 
       final existing = await _findExistingFeedback(
@@ -302,6 +311,7 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
     final reviewerId = _reviewerId;
     final reviewedUserId = _reviewedUserId;
     final reviewType = _reviewType;
+    final text = _textCtrl.text.trim();
 
     if (orderId == null ||
         reviewerId == null ||
@@ -310,6 +320,13 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Данные отзыва не загружены')),
       );
+      return;
+    }
+
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Введите текст отзыва')));
       return;
     }
 
@@ -322,7 +339,7 @@ class _FeedbackCreatePageState extends State<FeedbackCreatePage> {
         'reviewed_user_id': reviewedUserId,
         'type': reviewType,
         'estimate': _rating,
-        'text': _textCtrl.text.trim(),
+        'text': text,
       };
 
       final actualExisting = await _findExistingFeedback(

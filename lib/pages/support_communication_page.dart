@@ -12,6 +12,8 @@ import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
+const String _attachmentOnlyText = 'Вложение';
+
 class SupportCommunicationPage extends StatefulWidget {
   final String requestId;
   final String? agentName;
@@ -157,6 +159,28 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
     }
   }
 
+  Map<String, dynamic> _messageFromRecord(dynamic record) {
+    return {
+      'id': record.id,
+      'user_id': _relationId(record.data['user_id']) ?? '',
+      'text': record.data['text'] as String? ?? '',
+      'created': record.get<String>('created') ?? '',
+    };
+  }
+
+  void _sortMessages() {
+    _messages.sort((a, b) {
+      final da = DateTime.tryParse(a['created'] as String? ?? '');
+      final db = DateTime.tryParse(b['created'] as String? ?? '');
+
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+
+      return da.compareTo(db);
+    });
+  }
+
   Future<void> _loadAll() async {
     setState(() {
       _loading = true;
@@ -197,26 +221,11 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
       final requestId = _relationId(record.data['request_id']);
       if (requestId != widget.requestId) continue;
 
-      loaded.add({
-        'id': record.id,
-        'user_id': _relationId(record.data['user_id']) ?? '',
-        'text': record.data['text'] as String? ?? '',
-        'created': record.get<String>('created') ?? '',
-      });
+      loaded.add(_messageFromRecord(record));
     }
 
-    loaded.sort((a, b) {
-      final da = DateTime.tryParse(a['created'] as String? ?? '');
-      final db = DateTime.tryParse(b['created'] as String? ?? '');
-
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-
-      return da.compareTo(db);
-    });
-
     _messages = loaded;
+    _sortMessages();
   }
 
   Future<void> _loadAttachments() async {
@@ -292,12 +301,7 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
           final requestId = _relationId(record.data['request_id']);
           if (requestId != widget.requestId) return;
 
-          final message = {
-            'id': record.id,
-            'user_id': _relationId(record.data['user_id']) ?? '',
-            'text': record.data['text'] as String? ?? '',
-            'created': record.get<String>('created') ?? '',
-          };
+          final message = _messageFromRecord(record);
 
           setState(() {
             if (event.action == 'create') {
@@ -311,19 +315,11 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
               _attachmentsByMessageId.remove(record.id);
             }
 
-            _messages.sort((a, b) {
-              final da = DateTime.tryParse(a['created'] as String? ?? '');
-              final db = DateTime.tryParse(b['created'] as String? ?? '');
-
-              if (da == null && db == null) return 0;
-              if (da == null) return 1;
-              if (db == null) return -1;
-
-              return da.compareTo(db);
-            });
+            _sortMessages();
           });
 
           await _loadUsersForMessages();
+          await _loadAttachments();
 
           if (mounted) {
             setState(() {});
@@ -353,7 +349,7 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: false,
       withData: true,
-      type: FileType.any,
+      type: FileType.image,
     );
 
     if (result == null || result.files.isEmpty) return;
@@ -364,10 +360,10 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
   Future<void> _sendMessage({PlatformFile? file}) async {
     if (_sending) return;
 
-    final text = _textController.text.trim();
+    final rawText = _textController.text.trim();
     final hasFile = file != null;
 
-    if (text.isEmpty && !hasFile) return;
+    if (rawText.isEmpty && !hasFile) return;
 
     final userId = _currentUserId;
     if (userId == null) {
@@ -375,9 +371,18 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
       return;
     }
 
+    final messageText =
+        rawText.isEmpty && hasFile ? _attachmentOnlyText : rawText;
+
     setState(() => _sending = true);
 
     try {
+      final bytes = hasFile ? file.bytes : null;
+
+      if (hasFile && bytes == null) {
+        throw 'Не удалось прочитать файл';
+      }
+
       _textController.clear();
 
       final message = await PocketBaseService.instance.pb
@@ -386,17 +391,11 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
             body: {
               'request_id': widget.requestId,
               'user_id': userId,
-              'text': text,
+              'text': messageText,
             },
           );
 
       if (hasFile) {
-        final bytes = file.bytes;
-
-        if (bytes == null) {
-          throw 'Не удалось прочитать файл';
-        }
-
         await PocketBaseService.instance.pb
             .collection('support_request_attachments')
             .create(
@@ -404,7 +403,7 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
               files: [
                 http.MultipartFile.fromBytes(
                   'photo',
-                  bytes,
+                  bytes!,
                   filename: file.name,
                 ),
               ],
@@ -421,6 +420,7 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
       }
     } catch (e) {
       if (!mounted) return;
+
       _showSnack('Ошибка отправки сообщения: $e');
     } finally {
       if (mounted) {
@@ -501,9 +501,9 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final title = _requestReason?.trim();
+    final reason = _requestReason?.trim();
     final subtitle =
-        title == null || title.isEmpty ? 'Переписка с поддержкой' : title;
+        reason == null || reason.isEmpty ? 'Переписка с поддержкой' : reason;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -526,10 +526,10 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
                         child:
                             _messages.isEmpty
                                 ? const AppEmptyState(
-                                  icon: Icons.support_agent_rounded,
+                                  icon: CupertinoIcons.chat_bubble_2,
                                   title: 'Сообщений пока нет',
                                   subtitle:
-                                      'Напишите первое сообщение или прикрепите файл.',
+                                      'Напишите первое сообщение или прикрепите изображение.',
                                 )
                                 : ListView.builder(
                                   controller: _scrollController,
@@ -564,8 +564,11 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
                                               ? 'Вы'
                                               : user?['name'] as String? ??
                                                   user?['email'] as String? ??
+                                                  widget.agentName ??
                                                   'Собеседник',
-                                      avatarUrl: user?['avatar_url'] as String?,
+                                      avatarUrl:
+                                          user?['avatar_url'] as String? ??
+                                          widget.agentPhoto,
                                       attachments: attachments,
                                       onAttachmentTap: _openAttachment,
                                     );
@@ -609,8 +612,10 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasText = text.trim().isNotEmpty;
     final hasAttachments = attachments.isNotEmpty;
+    final hasText =
+        text.trim().isNotEmpty &&
+        !(hasAttachments && text.trim() == _attachmentOnlyText);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -834,7 +839,7 @@ class _ChatInputBar extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             AppIconSurfaceButton(
-              icon: CupertinoIcons.paperclip,
+              icon: CupertinoIcons.photo,
               onTap: sending ? () {} : onAttach,
               size: 42,
               iconColor: AppColors.textSecondary,

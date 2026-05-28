@@ -1,5 +1,7 @@
 // lib/pages/task_details_page.dart
 
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -23,8 +25,11 @@ class TaskDetailsPage extends StatefulWidget {
 
 class _TaskDetailsPageState extends State<TaskDetailsPage> {
   bool _loading = true;
+  bool _silentRefreshing = false;
   bool _requestingPayment = false;
   String? _error;
+
+  Timer? _refreshDebounce;
 
   String? _title;
   String? _deadline;
@@ -58,6 +63,52 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   void initState() {
     super.initState();
     _loadAll();
+    _subscribeRealtime();
+  }
+
+  @override
+  void dispose() {
+    _refreshDebounce?.cancel();
+
+    final pb = PocketBaseService.instance.pb;
+    pb.collection('tasks').unsubscribe('*');
+    pb.collection('orders').unsubscribe('*');
+    pb.collection('payment_requests').unsubscribe('*');
+    pb.collection('payment_statuses').unsubscribe('*');
+    pb.collection('task_statuses').unsubscribe('*');
+    pb.collection('feedbacks').unsubscribe('*');
+
+    super.dispose();
+  }
+
+  Future<void> _subscribeRealtime() async {
+    final pb = PocketBaseService.instance.pb;
+
+    Future<void> onAnyChange(dynamic _) async {
+      _scheduleSilentRefresh();
+    }
+
+    await pb.collection('tasks').subscribe('*', onAnyChange);
+    await pb.collection('orders').subscribe('*', onAnyChange);
+    await pb.collection('payment_requests').subscribe('*', onAnyChange);
+    await pb.collection('payment_statuses').subscribe('*', onAnyChange);
+    await pb.collection('task_statuses').subscribe('*', onAnyChange);
+    await pb.collection('feedbacks').subscribe('*', onAnyChange);
+  }
+
+  void _scheduleSilentRefresh() {
+    _refreshDebounce?.cancel();
+
+    _refreshDebounce = Timer(const Duration(milliseconds: 350), () async {
+      if (!mounted || _silentRefreshing) return;
+
+      _silentRefreshing = true;
+      try {
+        await _loadAll(showLoader: false);
+      } finally {
+        _silentRefreshing = false;
+      }
+    });
   }
 
   String? _relationId(dynamic value) {
@@ -161,21 +212,33 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     return result.items.first.id;
   }
 
-  Future<void> _loadAll() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadAll({bool showLoader = true}) async {
+    if (showLoader) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       await _loadDrawerData();
       await _loadDetail();
       await _loadPaymentRequest();
       await _loadFeedbackState();
+
+      if (!mounted) return;
+
+      setState(() {
+        _error = null;
+      });
     } catch (e) {
-      _error = 'Ошибка загрузки задачи: $e';
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Ошибка загрузки задачи: $e';
+      });
     } finally {
-      if (mounted) {
+      if (mounted && showLoader) {
         setState(() => _loading = false);
       }
     }
@@ -330,7 +393,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       _paymentRequestId = request.id;
       _paymentRequestStatus = 'pending';
 
-      await _loadDetail();
+      await _loadAll(showLoader: false);
 
       if (!mounted) return;
 
@@ -404,6 +467,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
       final sameLegacyFeedback =
           orderId == _orderId && reviewerId == currentUserId;
+
       final sameNewFeedback =
           orderId == _orderId &&
           reviewerId == currentUserId &&
@@ -461,7 +525,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     final value = _complexityFinal;
     if (value == null) return '—';
 
-    return '$value / 5 · ${OrderComplexityService.complexityLabel(value)}';
+    final normalized = value.clamp(1, 5).toInt();
+
+    return '$normalized / 5 · ${OrderComplexityService.complexityLabel(normalized)}';
   }
 
   String _complexitySourceText() {
@@ -543,7 +609,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                     children: [
                       AppTopBar(
                         title: 'Детали задачи',
-                        subtitle: 'Статус, оплата и чат',
+                        subtitle: 'Статус, сложность, оплата и чат',
                         onBack: _goBack,
                         onRefresh: _loadAll,
                       ),

@@ -14,14 +14,12 @@ import '../pages/executor_orders_page.dart';
 import '../pages/log_in_page.dart';
 import '../pages/log_up_page.dart';
 import '../pages/mock_payment_page.dart';
-import '../pages/order_apply_page.dart';
 import '../pages/order_more_page.dart';
 import '../pages/support_create_page.dart';
 import '../pages/support_orders_page.dart';
 import '../pages/support_page.dart';
 import '../pages/support_communication_page.dart' as support_chat;
 import '../pages/task_details_page.dart';
-import '../pages/tasks_check_page.dart';
 import '../pages/tasks_communication_page.dart' as task_chat;
 import '../pages/tasks_page.dart';
 
@@ -86,21 +84,6 @@ class AppRouter {
               return OrderMorePage(orderId: orderId);
             },
           ),
-          GoRoute(
-            path: 'apply',
-            builder: (context, state) {
-              final extra = state.extra as Map<String, dynamic>?;
-              final orderId = extra?['id'] as String?;
-
-              if (orderId == null) {
-                return const Scaffold(
-                  body: Center(child: Text('Order ID не передан')),
-                );
-              }
-
-              return OrderApplyPage(orderId: orderId);
-            },
-          ),
         ],
       ),
 
@@ -135,16 +118,8 @@ class AppRouter {
               return task_chat.TasksCommunicationPage(taskId: taskId);
             },
           ),
-          GoRoute(
-            path: 'check/:taskId',
-            builder: (context, state) {
-              final taskId = state.pathParameters['taskId']!;
-              return TaskCheckPage(taskId: taskId);
-            },
-          ),
         ],
       ),
-
 
       GoRoute(
         path: '/feedbacks/task/:taskId',
@@ -153,6 +128,7 @@ class AppRouter {
           return FeedbackCreatePage(taskId: taskId);
         },
       ),
+
       GoRoute(
         path: '/support',
         builder: (context, state) => const SupportPage(),
