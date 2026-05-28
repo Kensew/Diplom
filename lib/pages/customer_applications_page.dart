@@ -18,6 +18,7 @@ class _ReqItem {
   final _ReqType type;
   final String title;
   final String actorName;
+  final String? actorId;
   final String? actorPhoto;
   final String status;
   final DateTime createdAt;
@@ -36,6 +37,7 @@ class _ReqItem {
     required this.type,
     required this.title,
     required this.actorName,
+    this.actorId,
     this.actorPhoto,
     required this.status,
     required this.createdAt,
@@ -409,6 +411,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
               executor?['name'] as String? ??
               executor?['email'] as String? ??
               'Исполнитель',
+          actorId: executorId,
           actorPhoto: _userPhotoUrl(executor),
           status: _status(app.data['status']),
           createdAt:
@@ -463,6 +466,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
               requestedBy?['name'] as String? ??
               requestedBy?['email'] as String? ??
               'Исполнитель',
+          actorId: requestedById,
           actorPhoto: _userPhotoUrl(requestedBy),
           status: _status(payment.data['status']),
           createdAt:
@@ -642,6 +646,14 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     context.push('/tasks/details/$taskId');
   }
 
+  void _openActorProfile(_ReqItem item) {
+    final actorId = item.actorId;
+
+    if (actorId == null || actorId.isEmpty) return;
+
+    context.push('/account/$actorId');
+  }
+
   Future<void> _openFeedbackForItem(_ReqItem item) async {
     final taskId = item.taskId;
     if (taskId == null || taskId.isEmpty) return;
@@ -814,6 +826,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       onAccept: () => _acceptItem(item),
       onReject: () => _decide(item, false),
       onOpenTask: () => _openTaskDetails(item),
+      onOpenActorProfile:
+          item.actorId == null ? null : () => _openActorProfile(item),
       onOpenFeedback: () => _openFeedbackForItem(item),
     );
   }
@@ -1193,6 +1207,7 @@ class _RequestCard extends StatelessWidget {
   final VoidCallback onAccept;
   final VoidCallback onReject;
   final VoidCallback onOpenTask;
+  final VoidCallback? onOpenActorProfile;
   final VoidCallback onOpenFeedback;
 
   const _RequestCard({
@@ -1208,6 +1223,7 @@ class _RequestCard extends StatelessWidget {
     required this.onAccept,
     required this.onReject,
     required this.onOpenTask,
+    required this.onOpenActorProfile,
     required this.onOpenFeedback,
   });
 
@@ -1260,6 +1276,16 @@ class _RequestCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onOpenActorProfile != null) ...[
+                IconButton(
+                  tooltip: 'Профиль',
+                  onPressed: busy ? null : onOpenActorProfile,
+                  icon: const Icon(
+                    CupertinoIcons.person_crop_circle,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ],
               Text(
                 dateText,
                 style: AppTextStyles.caption,

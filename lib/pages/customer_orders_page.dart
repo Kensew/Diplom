@@ -26,6 +26,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
   bool _loading = true;
   bool _silentRefreshing = false;
+  bool _showArchive = false;
   String? _error;
 
   String _sort = 'Newest';
@@ -61,6 +62,8 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     pb.collection('payment_requests').unsubscribe('*');
     pb.collection('frameworks').unsubscribe('*');
     pb.collection('languages').unsubscribe('*');
+    pb.collection('task_statuses').unsubscribe('*');
+    pb.collection('payment_statuses').unsubscribe('*');
 
     _searchController.dispose();
     super.dispose();
@@ -79,6 +82,8 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     await pb.collection('payment_requests').subscribe('*', onAnyChange);
     await pb.collection('frameworks').subscribe('*', onAnyChange);
     await pb.collection('languages').subscribe('*', onAnyChange);
+    await pb.collection('task_statuses').subscribe('*', onAnyChange);
+    await pb.collection('payment_statuses').subscribe('*', onAnyChange);
   }
 
   void _scheduleSilentRefresh() {
@@ -217,6 +222,45 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     return result.items;
   }
 
+  DateTime? _parseDateTime(String? raw) {
+    return DateTime.tryParse(raw ?? '');
+  }
+
+  dynamic _latestTaskForOrder(List<dynamic> tasks, String orderId) {
+    final related =
+        tasks.where((task) {
+          final taskOrderId = _relationId(task.data['order_id']);
+          return taskOrderId == orderId;
+        }).toList();
+
+    if (related.isEmpty) return null;
+
+    related.sort((a, b) {
+      final da = _parseDateTime(a.get<String>('created') ?? '');
+      final db = _parseDateTime(b.get<String>('created') ?? '');
+
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+
+      return db.compareTo(da);
+    });
+
+    return related.first;
+  }
+
+  String? _nameById(List<dynamic> records, String? id) {
+    if (id == null || id.isEmpty) return null;
+
+    for (final record in records) {
+      if (record.id == id) {
+        return record.data['name'] as String?;
+      }
+    }
+
+    return null;
+  }
+
   Future<void> _loadAll({bool showLoader = true}) async {
     if (showLoader) {
       setState(() {
@@ -252,6 +296,10 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
           .collection('orders')
           .getList(page: 1, perPage: 200);
 
+      final tasks = await _getAllRecords('tasks');
+      final taskStatuses = await _getAllRecords('task_statuses');
+      final paymentStatuses = await _getAllRecords('payment_statuses');
+
       final result = <Map<String, dynamic>>[];
       final frameworkSet = <String>{};
       final languageSet = <String>{};
@@ -269,6 +317,16 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
         final language = await _getRecordData('languages', languageId);
         final executor = await _getRecordData('users', executorId);
 
+        final latestTask = _latestTaskForOrder(tasks, record.id);
+        final taskId = latestTask?.id as String?;
+        final taskStatusId = _relationId(latestTask?.data['status_id']);
+        final paymentStatusId = _relationId(
+          latestTask?.data['payment_status_id'],
+        );
+
+        final taskStatusName = _nameById(taskStatuses, taskStatusId);
+        final paymentStatusName = _nameById(paymentStatuses, paymentStatusId);
+
         final frameworkName = framework?['name'] as String? ?? '—';
         final languageName = language?['name'] as String? ?? '—';
         final executorName =
@@ -280,6 +338,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
         result.add({
           'id': record.id,
           'created': record.get<String>('created') ?? '',
+          'updated': record.get<String>('updated') ?? '',
           'task_description': record.data['task_description'] as String? ?? '',
           'deadline': record.data['deadline'] as String?,
           'executor_id': executorId,
@@ -287,12 +346,15 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
           'price': record.data['price'],
           'framework_name': frameworkName,
           'language_name': languageName,
+          'task_id': taskId,
+          'task_status': taskStatusName,
+          'payment_status': paymentStatusName,
         });
       }
 
       result.sort((a, b) {
-        final da = DateTime.tryParse(a['created'] as String? ?? '');
-        final db = DateTime.tryParse(b['created'] as String? ?? '');
+        final da = _parseDateTime(a['created'] as String?);
+        final db = _parseDateTime(b['created'] as String?);
 
         if (da == null && db == null) return 0;
         if (da == null) return 1;
@@ -485,12 +547,42 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     return order['executor_id'] != null;
   }
 
+  String _normalized(dynamic value) {
+    return (value as String? ?? '').trim().toLowerCase();
+  }
+
+  bool _isArchivedOrder(Map<String, dynamic> order) {
+    final taskStatus = _normalized(order['task_status']);
+    final paymentStatus = _normalized(order['payment_status']);
+
+    return taskStatus == 'done' ||
+        taskStatus == 'completed' ||
+        taskStatus == 'complete' ||
+        taskStatus == 'выполнено' ||
+        taskStatus == 'завершено' ||
+        paymentStatus == 'paid' ||
+        paymentStatus == 'approved' ||
+        paymentStatus == 'оплачено';
+  }
+
+  int get _activeCount {
+    return _orders.where((order) => !_isArchivedOrder(order)).length;
+  }
+
+  int get _archivedCount {
+    return _orders.where(_isArchivedOrder).length;
+  }
+
   int get _assignedCount {
-    return _orders.where(_hasExecutor).length;
+    return _orders
+        .where((order) => !_isArchivedOrder(order) && _hasExecutor(order))
+        .length;
   }
 
   int get _waitingCount {
-    return _orders.where((order) => !_hasExecutor(order)).length;
+    return _orders
+        .where((order) => !_isArchivedOrder(order) && !_hasExecutor(order))
+        .length;
   }
 
   String _sortLabel(String value) {
@@ -518,6 +610,8 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     final deadline = _formatDate(order['deadline'] as String?);
     final price = _formatMoney(_priceOf(order));
     final executorName = order['executor_name'] as String? ?? '';
+    final taskStatus = order['task_status'] as String? ?? '';
+    final paymentStatus = order['payment_status'] as String? ?? '';
     final status =
         _hasExecutor(order)
             ? 'исполнитель назначен назначен $executorName'
@@ -531,17 +625,26 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
           deadline,
           price,
           executorName,
+          taskStatus,
+          paymentStatus,
           status,
         ].join(' ').toLowerCase();
 
     return haystack.contains(query);
   }
 
+  List<Map<String, dynamic>> get _baseVisibleOrders {
+    return _orders.where((order) {
+      final archived = _isArchivedOrder(order);
+      return _showArchive ? archived : !archived;
+    }).toList();
+  }
+
   List<Map<String, dynamic>> get _filteredOrders {
     final query = _searchController.text.trim().toLowerCase();
 
     final list =
-        _orders.where((order) {
+        _baseVisibleOrders.where((order) {
           final framework = order['framework_name'] as String? ?? '';
           final language = order['language_name'] as String? ?? '';
           final deadline = _formatDate(order['deadline'] as String?);
@@ -554,7 +657,17 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
     switch (_sort) {
       case 'Oldest':
-        return list.reversed.toList();
+        list.sort((a, b) {
+          final da = _parseDateTime(a['created'] as String?);
+          final db = _parseDateTime(b['created'] as String?);
+
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+
+          return da.compareTo(db);
+        });
+        return list;
 
       case 'By deadline':
         list.sort((a, b) {
@@ -579,6 +692,16 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
       case 'Newest':
       default:
+        list.sort((a, b) {
+          final da = _parseDateTime(a['created'] as String?);
+          final db = _parseDateTime(b['created'] as String?);
+
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+
+          return db.compareTo(da);
+        });
         return list;
     }
   }
@@ -649,6 +772,20 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
         _filterDeadline != null ||
         _searchController.text.trim().isNotEmpty;
 
+    final emptyTitle =
+        hasActiveFilters
+            ? 'Ничего не найдено'
+            : _showArchive
+            ? 'Архив пуст'
+            : 'Заказов пока нет';
+
+    final emptySubtitle =
+        hasActiveFilters
+            ? 'Измени фильтры или поисковый запрос.'
+            : _showArchive
+            ? 'Оплаченные и выполненные заказы будут отображаться здесь.'
+            : 'Создай первый заказ, чтобы исполнитель смог подать заявку.';
+
     return Scaffold(
       key: _scaffoldKey,
       drawer:
@@ -671,8 +808,11 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                   : Column(
                     children: [
                       AppTopBar(
-                        title: 'Мои заказы',
-                        subtitle: 'Созданные заказы и назначенные исполнители',
+                        title: _showArchive ? 'Архив заказов' : 'Мои заказы',
+                        subtitle:
+                            _showArchive
+                                ? 'Оплаченные и выполненные задачи'
+                                : 'Созданные заказы и назначенные исполнители',
                         onMenu: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
@@ -697,7 +837,8 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                   child: _CustomerOrdersOverviewCard(
                                     name: _name ?? 'Заказчик',
                                     avatarUrl: _photo,
-                                    totalCount: _orders.length,
+                                    activeCount: _activeCount,
+                                    archivedCount: _archivedCount,
                                     assignedCount: _assignedCount,
                                     waitingCount: _waitingCount,
                                   ),
@@ -731,7 +872,16 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                     framework: _filterFramework,
                                     language: _filterLanguage,
                                     deadline: _filterDeadline,
+                                    showArchive: _showArchive,
+                                    activeCount: _activeCount,
+                                    archivedCount: _archivedCount,
                                     hasActiveFilters: hasActiveFilters,
+                                    onActive: () {
+                                      setState(() => _showArchive = false);
+                                    },
+                                    onArchive: () {
+                                      setState(() => _showArchive = true);
+                                    },
                                     onSort: () {
                                       _selectFromList(
                                         title: 'Сортировка',
@@ -790,7 +940,10 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                 ),
                                 sliver: SliverToBoxAdapter(
                                   child: AppSectionHeader(
-                                    title: 'Заказы',
+                                    title:
+                                        _showArchive
+                                            ? 'Архивные заказы'
+                                            : 'Текущие заказы',
                                     count: filteredOrders.length,
                                   ),
                                 ),
@@ -802,20 +955,21 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                     icon:
                                         hasActiveFilters
                                             ? CupertinoIcons.search
+                                            : _showArchive
+                                            ? CupertinoIcons.archivebox
                                             : CupertinoIcons.doc_text,
-                                    title:
-                                        hasActiveFilters
-                                            ? 'Ничего не найдено'
-                                            : 'Заказов пока нет',
-                                    subtitle:
-                                        hasActiveFilters
-                                            ? 'Измени фильтры или поисковый запрос.'
-                                            : 'Создай первый заказ, чтобы исполнитель смог подать заявку.',
-                                    action: ElevatedButton.icon(
-                                      onPressed: _openCreateOrder,
-                                      icon: const Icon(Icons.add),
-                                      label: const Text('Создать заказ'),
-                                    ),
+                                    title: emptyTitle,
+                                    subtitle: emptySubtitle,
+                                    action:
+                                        _showArchive
+                                            ? null
+                                            : ElevatedButton.icon(
+                                              onPressed: _openCreateOrder,
+                                              icon: const Icon(Icons.add),
+                                              label: const Text(
+                                                'Создать заказ',
+                                              ),
+                                            ),
                                   ),
                                 )
                               else
@@ -856,8 +1010,14 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                           ),
                                           price: _formatMoney(_priceOf(order)),
                                           assigned: _hasExecutor(order),
+                                          archived: _isArchivedOrder(order),
                                           executorName:
                                               order['executor_name'] as String?,
+                                          taskStatus:
+                                              order['task_status'] as String?,
+                                          paymentStatus:
+                                              order['payment_status']
+                                                  as String?,
                                           onTap: () => _openOrder(id),
                                           onDelete: () => _deleteOrder(id),
                                         );
@@ -881,14 +1041,16 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 class _CustomerOrdersOverviewCard extends StatelessWidget {
   final String name;
   final String? avatarUrl;
-  final int totalCount;
+  final int activeCount;
+  final int archivedCount;
   final int assignedCount;
   final int waitingCount;
 
   const _CustomerOrdersOverviewCard({
     required this.name,
     required this.avatarUrl,
-    required this.totalCount,
+    required this.activeCount,
+    required this.archivedCount,
     required this.assignedCount,
     required this.waitingCount,
   });
@@ -927,7 +1089,7 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Здесь собраны твои заказы, заявки исполнителей и переходы к задачам.',
+            'Текущие заказы отделены от архива, чтобы оплаченные и завершённые работы не мешали просмотру активных задач.',
             style: AppTextStyles.body,
           ),
           const SizedBox(height: 14),
@@ -935,8 +1097,8 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatCard(
-                  title: 'Всего',
-                  value: totalCount.toString(),
+                  title: 'Текущие',
+                  value: activeCount.toString(),
                   icon: Icons.receipt_long_rounded,
                 ),
               ),
@@ -951,12 +1113,18 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Ожидают',
-                  value: waitingCount.toString(),
-                  icon: Icons.schedule_rounded,
+                  title: 'Архив',
+                  value: archivedCount.toString(),
+                  icon: CupertinoIcons.archivebox,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          _StatCard(
+            title: 'Ожидают исполнителя',
+            value: waitingCount.toString(),
+            icon: Icons.schedule_rounded,
           ),
         ],
       ),
@@ -1002,7 +1170,12 @@ class _CustomerOrdersFilterBar extends StatelessWidget {
   final String? framework;
   final String? language;
   final String? deadline;
+  final bool showArchive;
+  final int activeCount;
+  final int archivedCount;
   final bool hasActiveFilters;
+  final VoidCallback onActive;
+  final VoidCallback onArchive;
   final VoidCallback onSort;
   final VoidCallback onFramework;
   final VoidCallback onLanguage;
@@ -1014,7 +1187,12 @@ class _CustomerOrdersFilterBar extends StatelessWidget {
     required this.framework,
     required this.language,
     required this.deadline,
+    required this.showArchive,
+    required this.activeCount,
+    required this.archivedCount,
     required this.hasActiveFilters,
+    required this.onActive,
+    required this.onArchive,
     required this.onSort,
     required this.onFramework,
     required this.onLanguage,
@@ -1029,6 +1207,20 @@ class _CustomerOrdersFilterBar extends StatelessWidget {
       physics: const BouncingScrollPhysics(),
       child: Row(
         children: [
+          AppFilterChip(
+            icon: CupertinoIcons.briefcase,
+            label: 'Текущие $activeCount',
+            active: !showArchive,
+            onTap: onActive,
+          ),
+          const SizedBox(width: 8),
+          AppFilterChip(
+            icon: CupertinoIcons.archivebox,
+            label: 'Архив $archivedCount',
+            active: showArchive,
+            onTap: onArchive,
+          ),
+          const SizedBox(width: 8),
           AppFilterChip(
             icon: CupertinoIcons.sort_down,
             label: sortLabel,
@@ -1078,7 +1270,10 @@ class _CustomerOrderCard extends StatelessWidget {
   final String deadline;
   final String price;
   final bool assigned;
+  final bool archived;
   final String? executorName;
+  final String? taskStatus;
+  final String? paymentStatus;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
@@ -1089,7 +1284,10 @@ class _CustomerOrderCard extends StatelessWidget {
     required this.deadline,
     required this.price,
     required this.assigned,
+    required this.archived,
     required this.executorName,
+    required this.taskStatus,
+    required this.paymentStatus,
     required this.onTap,
     required this.onDelete,
   });
@@ -1100,6 +1298,9 @@ class _CustomerOrderCard extends StatelessWidget {
         executorName == null || executorName!.trim().isEmpty
             ? 'Исполнитель назначен'
             : 'Исполнитель: $executorName';
+
+    final normalizedTaskStatus = (taskStatus ?? '').trim();
+    final normalizedPaymentStatus = (paymentStatus ?? '').trim();
 
     return AppSurfaceCard(
       onTap: onTap,
@@ -1154,6 +1355,21 @@ class _CustomerOrderCard extends StatelessWidget {
                     color: AppColors.textMuted,
                     icon: CupertinoIcons.clock,
                   ),
+              if (archived)
+                const AppTag(
+                  icon: CupertinoIcons.archivebox,
+                  label: 'В архиве',
+                ),
+              if (normalizedTaskStatus.isNotEmpty)
+                AppTag(
+                  icon: CupertinoIcons.checkmark_circle,
+                  label: 'Задача: $normalizedTaskStatus',
+                ),
+              if (normalizedPaymentStatus.isNotEmpty)
+                AppTag(
+                  icon: CupertinoIcons.creditcard,
+                  label: 'Оплата: $normalizedPaymentStatus',
+                ),
             ],
           ),
           const SizedBox(height: 14),

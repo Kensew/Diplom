@@ -38,6 +38,14 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
   String? _error;
   String? _taskTitle;
 
+  String? _customerId;
+  String? _customerName;
+  String? _customerPhoto;
+
+  String? _executorId;
+  String? _executorName;
+  String? _executorPhoto;
+
   String? get _currentUserId => PocketBaseService.instance.currentUserId;
 
   @override
@@ -180,7 +188,7 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
     });
 
     try {
-      await _loadTaskTitle();
+      await _loadTaskContext();
       await _loadHistory();
       await _loadAttachments();
       await _loadUsersForMessages();
@@ -194,7 +202,7 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
     }
   }
 
-  Future<void> _loadTaskTitle() async {
+  Future<void> _loadTaskContext() async {
     final task = await PocketBaseService.instance.pb
         .collection('tasks')
         .getOne(widget.taskId);
@@ -203,6 +211,40 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
     final order = await _getRecordData('orders', orderId);
 
     _taskTitle = order?['task_description'] as String? ?? 'Чат задачи';
+
+    _customerId = _relationId(order?['customer_id']);
+    _executorId = _relationId(task.data['executor_id']);
+
+    final customer = await _getRecordData('users', _customerId);
+    final executor = await _getRecordData('users', _executorId);
+
+    _customerName =
+        customer?['name'] as String? ??
+        customer?['email'] as String? ??
+        'Заказчик';
+
+    _executorName =
+        executor?['name'] as String? ??
+        executor?['email'] as String? ??
+        'Исполнитель';
+
+    _customerPhoto =
+        _customerId == null
+            ? null
+            : _fileUrl(
+              collectionName: 'users',
+              recordId: _customerId!,
+              fileValue: customer?['photo'],
+            );
+
+    _executorPhoto =
+        _executorId == null
+            ? null
+            : _fileUrl(
+              collectionName: 'users',
+              recordId: _executorId!,
+              fileValue: executor?['photo'],
+            );
   }
 
   Future<void> _loadHistory() async {
@@ -481,6 +523,12 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
     );
   }
 
+  void _openUserProfile(String? userId) {
+    if (userId == null || userId.isEmpty) return;
+
+    context.push('/account/$userId');
+  }
+
   void _showSnack(String message) {
     ScaffoldMessenger.of(
       context,
@@ -517,6 +565,20 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
                         subtitle: headerSubtitle,
                         onBack: _goBack,
                         onRefresh: _loadAll,
+                      ),
+                      _ChatParticipantsBar(
+                        customerName: _customerName ?? 'Заказчик',
+                        customerPhoto: _customerPhoto,
+                        executorName: _executorName ?? 'Исполнитель',
+                        executorPhoto: _executorPhoto,
+                        onOpenCustomer:
+                            _customerId == null
+                                ? null
+                                : () => _openUserProfile(_customerId),
+                        onOpenExecutor:
+                            _executorId == null
+                                ? null
+                                : () => _openUserProfile(_executorId),
                       ),
                       Expanded(
                         child:
@@ -564,6 +626,10 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
                                       avatarUrl: user?['avatar_url'] as String?,
                                       attachments: attachments,
                                       onAttachmentTap: _openAttachment,
+                                      onOpenSenderProfile:
+                                          userId.isEmpty
+                                              ? null
+                                              : () => _openUserProfile(userId),
                                     );
                                   },
                                 ),
@@ -582,6 +648,107 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
   }
 }
 
+class _ChatParticipantsBar extends StatelessWidget {
+  final String customerName;
+  final String? customerPhoto;
+  final String executorName;
+  final String? executorPhoto;
+  final VoidCallback? onOpenCustomer;
+  final VoidCallback? onOpenExecutor;
+
+  const _ChatParticipantsBar({
+    required this.customerName,
+    required this.customerPhoto,
+    required this.executorName,
+    required this.executorPhoto,
+    required this.onOpenCustomer,
+    required this.onOpenExecutor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.background,
+        border: Border(bottom: BorderSide(color: AppColors.divider)),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ParticipantChip(
+              name: customerName,
+              role: 'Заказчик',
+              avatarUrl: customerPhoto,
+              onTap: onOpenCustomer,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _ParticipantChip(
+              name: executorName,
+              role: 'Исполнитель',
+              avatarUrl: executorPhoto,
+              onTap: onOpenExecutor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ParticipantChip extends StatelessWidget {
+  final String name;
+  final String role;
+  final String? avatarUrl;
+  final VoidCallback? onTap;
+
+  const _ParticipantChip({
+    required this.name,
+    required this.role,
+    required this.avatarUrl,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(9, 8, 8, 8),
+      radius: AppRadii.sm,
+      child: Row(
+        children: [
+          AppProfileAvatar(avatarUrl: avatarUrl, size: 32),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.trim().isEmpty ? role : name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.small.copyWith(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(role, style: AppTextStyles.caption),
+              ],
+            ),
+          ),
+          Icon(
+            CupertinoIcons.person_crop_circle,
+            size: 18,
+            color: onTap == null ? AppColors.textMuted : AppColors.accent,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
   final bool isMe;
   final String text;
@@ -591,6 +758,7 @@ class _MessageBubble extends StatelessWidget {
   final String? avatarUrl;
   final List<Map<String, dynamic>> attachments;
   final ValueChanged<Map<String, dynamic>> onAttachmentTap;
+  final VoidCallback? onOpenSenderProfile;
 
   const _MessageBubble({
     required this.isMe,
@@ -601,6 +769,7 @@ class _MessageBubble extends StatelessWidget {
     required this.avatarUrl,
     required this.attachments,
     required this.onAttachmentTap,
+    required this.onOpenSenderProfile,
   });
 
   @override
@@ -618,7 +787,10 @@ class _MessageBubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isMe) ...[
-            AppProfileAvatar(avatarUrl: avatarUrl, size: 32),
+            GestureDetector(
+              onTap: onOpenSenderProfile,
+              child: AppProfileAvatar(avatarUrl: avatarUrl, size: 32),
+            ),
             const SizedBox(width: 8),
           ],
           Flexible(
@@ -648,11 +820,14 @@ class _MessageBubble extends StatelessWidget {
                     if (!isMe)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(
-                          senderName,
-                          style: AppTextStyles.caption.copyWith(
-                            color: AppColors.accent,
-                            fontWeight: FontWeight.w700,
+                        child: GestureDetector(
+                          onTap: onOpenSenderProfile,
+                          child: Text(
+                            senderName,
+                            style: AppTextStyles.caption.copyWith(
+                              color: AppColors.accent,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ),

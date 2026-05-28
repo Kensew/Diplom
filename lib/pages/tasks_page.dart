@@ -27,6 +27,7 @@ class _TasksPageState extends State<TasksPage> {
   final _fmt = DateFormat('dd.MM.yyyy');
 
   String _sortOrder = 'Newest';
+  bool _showArchive = false;
 
   bool _loading = true;
   String? _error;
@@ -231,6 +232,7 @@ class _TasksPageState extends State<TasksPage> {
         result.add({
           'id': record.id,
           'created': record.get<String>('created') ?? '',
+          'updated': record.get<String>('updated') ?? '',
           'order_id': orderId,
           'title': order?['task_description'] as String? ?? '—',
           'deadline': order?['deadline'] as String?,
@@ -245,8 +247,8 @@ class _TasksPageState extends State<TasksPage> {
       }
 
       result.sort((a, b) {
-        final da = DateTime.tryParse(a['created'] as String? ?? '');
-        final db = DateTime.tryParse(b['created'] as String? ?? '');
+        final da = _parseDateTime(a['created'] as String?);
+        final db = _parseDateTime(b['created'] as String?);
 
         if (da == null && db == null) return 0;
         if (da == null) return 1;
@@ -277,6 +279,10 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
+  DateTime? _parseDateTime(String? raw) {
+    return DateTime.tryParse(raw ?? '');
+  }
+
   DateTime? _parseDate(String? raw) {
     return DateTime.tryParse(raw ?? '');
   }
@@ -286,6 +292,21 @@ class _TasksPageState extends State<TasksPage> {
     if (dt == null) return '—';
 
     return _fmt.format(dt.toLocal());
+  }
+
+  String _normalizedStatus(dynamic value) {
+    return (value as String? ?? '').trim().toLowerCase();
+  }
+
+  bool _isArchivedTask(Map<String, dynamic> task) {
+    final taskStatus = _normalizedStatus(task['status']);
+    final paymentStatus = _normalizedStatus(task['payment_status']);
+
+    return taskStatus == 'done' ||
+        taskStatus == 'completed' ||
+        taskStatus == 'complete' ||
+        paymentStatus == 'paid' ||
+        paymentStatus == 'approved';
   }
 
   num _amountOf(Map<String, dynamic> task) {
@@ -316,27 +337,46 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
+  List<Map<String, dynamic>> get _baseVisibleTasks {
+    return _tasks.where((task) {
+      final archived = _isArchivedTask(task);
+      return _showArchive ? archived : !archived;
+    }).toList();
+  }
+
   List<Map<String, dynamic>> get _filteredTasks {
     final query = _searchController.text.trim().toLowerCase();
 
     final list =
-        _tasks.where((task) {
+        _baseVisibleTasks.where((task) {
           final title = (task['title'] as String? ?? '').toLowerCase();
           final status = (task['status'] as String? ?? '').toLowerCase();
           final payment =
               (task['payment_status'] as String? ?? '').toLowerCase();
           final complexity =
               (task['complexity_final']?.toString() ?? '').toLowerCase();
+          final amount = _amountOf(task).toString().toLowerCase();
 
           return title.contains(query) ||
               status.contains(query) ||
               payment.contains(query) ||
-              complexity.contains(query);
+              complexity.contains(query) ||
+              amount.contains(query);
         }).toList();
 
     switch (_sortOrder) {
       case 'Oldest':
-        return list.reversed.toList();
+        list.sort((a, b) {
+          final da = _parseDateTime(a['created'] as String?);
+          final db = _parseDateTime(b['created'] as String?);
+
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+
+          return da.compareTo(db);
+        });
+        return list;
 
       case 'By deadline':
         list.sort((a, b) {
@@ -361,6 +401,16 @@ class _TasksPageState extends State<TasksPage> {
 
       case 'Newest':
       default:
+        list.sort((a, b) {
+          final da = _parseDateTime(a['created'] as String?);
+          final db = _parseDateTime(b['created'] as String?);
+
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+
+          return db.compareTo(da);
+        });
         return list;
     }
   }
@@ -394,22 +444,26 @@ class _TasksPageState extends State<TasksPage> {
     );
   }
 
+  int get _activeTasksCount {
+    return _tasks.where((task) => !_isArchivedTask(task)).length;
+  }
+
+  int get _archivedTasksCount {
+    return _tasks.where(_isArchivedTask).length;
+  }
+
   int get _pendingPaymentsCount {
     return _tasks.where((task) {
-      final status =
-          (task['payment_status'] as String? ?? '').trim().toLowerCase();
+      if (_isArchivedTask(task)) return false;
+
+      final status = _normalizedStatus(task['payment_status']);
 
       return status == 'pending';
     }).length;
   }
 
   int get _paidTasksCount {
-    return _tasks.where((task) {
-      final status =
-          (task['payment_status'] as String? ?? '').trim().toLowerCase();
-
-      return status == 'paid' || status == 'approved';
-    }).length;
+    return _archivedTasksCount;
   }
 
   void _openTask(String id) {
@@ -420,6 +474,19 @@ class _TasksPageState extends State<TasksPage> {
   Widget build(BuildContext context) {
     final filteredTasks = _filteredTasks;
     final hasSearch = _searchController.text.trim().isNotEmpty;
+    final emptyTitle =
+        hasSearch
+            ? 'Ничего не найдено'
+            : _showArchive
+            ? 'Архив пуст'
+            : 'Задач пока нет';
+
+    final emptySubtitle =
+        hasSearch
+            ? 'Измени поисковый запрос.'
+            : _showArchive
+            ? 'Оплаченные и выполненные задачи будут отображаться здесь.'
+            : 'Когда заказчик примет твою заявку, задача появится здесь.';
 
     return Scaffold(
       key: _scaffoldKey,
@@ -438,8 +505,11 @@ class _TasksPageState extends State<TasksPage> {
                   : Column(
                     children: [
                       AppTopBar(
-                        title: 'Мои задачи',
-                        subtitle: 'Текущие работы, сложность и оплата',
+                        title: _showArchive ? 'Архив задач' : 'Мои задачи',
+                        subtitle:
+                            _showArchive
+                                ? 'Выполненные и оплаченные задачи'
+                                : 'Текущие работы, сложность и оплата',
                         onMenu: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
@@ -464,7 +534,8 @@ class _TasksPageState extends State<TasksPage> {
                                   child: _TasksOverviewCard(
                                     name: _name ?? 'Исполнитель',
                                     avatarUrl: _photo,
-                                    totalCount: _tasks.length,
+                                    activeCount: _activeTasksCount,
+                                    archivedCount: _archivedTasksCount,
                                     pendingPaymentsCount: _pendingPaymentsCount,
                                     paidTasksCount: _paidTasksCount,
                                   ),
@@ -480,7 +551,10 @@ class _TasksPageState extends State<TasksPage> {
                                 sliver: SliverToBoxAdapter(
                                   child: AppSearchField(
                                     controller: _searchController,
-                                    hint: 'Поиск по задачам',
+                                    hint:
+                                        _showArchive
+                                            ? 'Поиск по архиву'
+                                            : 'Поиск по текущим задачам',
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ),
@@ -498,6 +572,28 @@ class _TasksPageState extends State<TasksPage> {
                                     physics: const BouncingScrollPhysics(),
                                     child: Row(
                                       children: [
+                                        AppFilterChip(
+                                          icon: CupertinoIcons.briefcase,
+                                          label: 'Текущие $_activeTasksCount',
+                                          active: !_showArchive,
+                                          onTap: () {
+                                            setState(() {
+                                              _showArchive = false;
+                                            });
+                                          },
+                                        ),
+                                        const SizedBox(width: 8),
+                                        AppFilterChip(
+                                          icon: CupertinoIcons.archivebox,
+                                          label: 'Архив $_archivedTasksCount',
+                                          active: _showArchive,
+                                          onTap: () {
+                                            setState(() {
+                                              _showArchive = true;
+                                            });
+                                          },
+                                        ),
+                                        const SizedBox(width: 8),
                                         AppFilterChip(
                                           icon: CupertinoIcons.sort_down,
                                           label: _sortLabel(_sortOrder),
@@ -531,7 +627,10 @@ class _TasksPageState extends State<TasksPage> {
                                 ),
                                 sliver: SliverToBoxAdapter(
                                   child: AppSectionHeader(
-                                    title: 'Задачи',
+                                    title:
+                                        _showArchive
+                                            ? 'Архивные задачи'
+                                            : 'Текущие задачи',
                                     count: filteredTasks.length,
                                   ),
                                 ),
@@ -543,15 +642,11 @@ class _TasksPageState extends State<TasksPage> {
                                     icon:
                                         hasSearch
                                             ? CupertinoIcons.search
+                                            : _showArchive
+                                            ? CupertinoIcons.archivebox
                                             : CupertinoIcons.checkmark_seal,
-                                    title:
-                                        hasSearch
-                                            ? 'Ничего не найдено'
-                                            : 'Задач пока нет',
-                                    subtitle:
-                                        hasSearch
-                                            ? 'Измени поисковый запрос.'
-                                            : 'Когда заказчик примет твою заявку, задача появится здесь.',
+                                    title: emptyTitle,
+                                    subtitle: emptySubtitle,
                                   ),
                                 )
                               else
@@ -572,6 +667,7 @@ class _TasksPageState extends State<TasksPage> {
                                         final taskIndex = index ~/ 2;
                                         final task = filteredTasks[taskIndex];
                                         final id = task['id'] as String;
+                                        final archived = _isArchivedTask(task);
 
                                         return _TaskCard(
                                           title:
@@ -598,6 +694,7 @@ class _TasksPageState extends State<TasksPage> {
                                           complexitySource:
                                               task['complexity_source']
                                                   as String?,
+                                          archived: archived,
                                           onTap: () => _openTask(id),
                                         );
                                       },
@@ -620,14 +717,16 @@ class _TasksPageState extends State<TasksPage> {
 class _TasksOverviewCard extends StatelessWidget {
   final String name;
   final String? avatarUrl;
-  final int totalCount;
+  final int activeCount;
+  final int archivedCount;
   final int pendingPaymentsCount;
   final int paidTasksCount;
 
   const _TasksOverviewCard({
     required this.name,
     required this.avatarUrl,
-    required this.totalCount,
+    required this.activeCount,
+    required this.archivedCount,
     required this.pendingPaymentsCount,
     required this.paidTasksCount,
   });
@@ -666,7 +765,7 @@ class _TasksOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Здесь собраны задачи, назначенные после принятия заявки заказчиком.',
+            'Текущие задачи отделены от архива, чтобы оплаченные и завершённые работы не мешали активной работе.',
             style: AppTextStyles.body,
           ),
           const SizedBox(height: 14),
@@ -674,15 +773,15 @@ class _TasksOverviewCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatCard(
-                  title: 'Всего',
-                  value: totalCount.toString(),
+                  title: 'В работе',
+                  value: activeCount.toString(),
                   icon: Icons.task_alt_rounded,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Ожидают',
+                  title: 'Ожидают оплаты',
                   value: pendingPaymentsCount.toString(),
                   icon: Icons.schedule_rounded,
                 ),
@@ -690,9 +789,9 @@ class _TasksOverviewCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
-                  title: 'Оплачено',
-                  value: paidTasksCount.toString(),
-                  icon: Icons.payments_rounded,
+                  title: 'Архив',
+                  value: archivedCount.toString(),
+                  icon: CupertinoIcons.archivebox,
                 ),
               ),
             ],
@@ -746,6 +845,7 @@ class _TaskCard extends StatelessWidget {
   final String timeSpent;
   final int? complexityFinal;
   final String? complexitySource;
+  final bool archived;
   final VoidCallback onTap;
 
   const _TaskCard({
@@ -758,13 +858,16 @@ class _TaskCard extends StatelessWidget {
     required this.timeSpent,
     required this.complexityFinal,
     required this.complexitySource,
+    required this.archived,
     required this.onTap,
   });
 
   AppStatusPill _taskStatusPill() {
     final normalized = status.trim().toLowerCase();
 
-    if (normalized == 'done' || normalized == 'completed') {
+    if (normalized == 'done' ||
+        normalized == 'completed' ||
+        normalized == 'complete') {
       return AppStatusPill.success(status);
     }
 
@@ -824,6 +927,11 @@ class _TaskCard extends StatelessWidget {
             children: [
               _taskStatusPill(),
               _paymentStatusPill(),
+              if (archived)
+                const AppTag(
+                  icon: CupertinoIcons.archivebox,
+                  label: 'В архиве',
+                ),
               if (complexity != null)
                 AppTag(
                   icon: Icons.bar_chart_rounded,

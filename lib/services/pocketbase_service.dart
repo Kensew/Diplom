@@ -16,7 +16,7 @@ class PocketBaseService {
 
   static const String baseUrl = String.fromEnvironment(
     'POCKETBASE_URL',
-    defaultValue: 'http://127.0.0.1:8090',
+    defaultValue: 'http://192.168.0.5:8090',
   );
 
   static Future<void> init() async {

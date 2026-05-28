@@ -520,6 +520,20 @@ class _OrderMorePageState extends State<OrderMorePage> {
     );
   }
 
+  void _openCustomerProfile() {
+    final id = _customerId;
+    if (id == null || id.isEmpty) return;
+
+    context.push('/account/$id');
+  }
+
+  void _openExecutorProfile() {
+    final id = _executorId;
+    if (id == null || id.isEmpty) return;
+
+    context.push('/account/$id');
+  }
+
   String _formatMoney(num? value) {
     if (value == null) return '—';
 
@@ -648,9 +662,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                 onOpenProfile:
                                     _customerId == null
                                         ? null
-                                        : () => context.push(
-                                          '/account/$_customerId',
-                                        ),
+                                        : _openCustomerProfile,
                               ),
                               if (_executorId != null) ...[
                                 const SizedBox(height: 12),
@@ -661,9 +673,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                   onOpenProfile:
                                       _executorId == null
                                           ? null
-                                          : () => context.push(
-                                            '/account/$_executorId',
-                                          ),
+                                          : _openExecutorProfile,
                                 ),
                               ],
                               const SizedBox(height: 12),
@@ -995,6 +1005,19 @@ class _CustomerCard extends StatelessWidget {
               ],
             ),
           ),
+          IconButton(
+            tooltip: 'Профиль заказчика',
+            onPressed: onOpenProfile,
+            icon: Icon(
+              onOpenProfile == null
+                  ? CupertinoIcons.person_crop_circle_badge_exclam
+                  : CupertinoIcons.person_crop_circle,
+              color:
+                  onOpenProfile == null
+                      ? AppColors.textMuted
+                      : AppColors.accent,
+            ),
+          ),
           const Icon(
             CupertinoIcons.chevron_right,
             size: 18,
@@ -1040,6 +1063,19 @@ class _ExecutorCard extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text('Назначенный исполнитель', style: AppTextStyles.caption),
               ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Профиль исполнителя',
+            onPressed: onOpenProfile,
+            icon: Icon(
+              onOpenProfile == null
+                  ? CupertinoIcons.person_crop_circle_badge_exclam
+                  : CupertinoIcons.person_crop_circle,
+              color:
+                  onOpenProfile == null
+                      ? AppColors.textMuted
+                      : AppColors.accent,
             ),
           ),
           const Icon(

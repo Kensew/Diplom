@@ -41,6 +41,26 @@ class _ProfileRadarStats {
   }
 }
 
+class _ExecutorWorkloadStats {
+  final int activeTasksCount;
+  final int pendingPaymentCount;
+  final int completedTasksCount;
+
+  const _ExecutorWorkloadStats({
+    required this.activeTasksCount,
+    required this.pendingPaymentCount,
+    required this.completedTasksCount,
+  });
+
+  factory _ExecutorWorkloadStats.empty() {
+    return const _ExecutorWorkloadStats(
+      activeTasksCount: 0,
+      pendingPaymentCount: 0,
+      completedTasksCount: 0,
+    );
+  }
+}
+
 class AccountPage extends StatefulWidget {
   final String? userId;
 
@@ -70,6 +90,7 @@ class _AccountPageState extends State<AccountPage> {
   double _avgRating = 0;
   int _totalFeedbacks = 0;
   _ProfileRadarStats _radarStats = _ProfileRadarStats.empty();
+  _ExecutorWorkloadStats _workloadStats = _ExecutorWorkloadStats.empty();
 
   @override
   void initState() {
@@ -226,6 +247,7 @@ class _AccountPageState extends State<AccountPage> {
 
       await _loadFeedbacks(id);
       await _loadRadarStats(id);
+      await _loadWorkloadStats(id);
     } catch (e) {
       _error = 'Ошибка загрузки профиля: $e';
     } finally {
@@ -430,7 +452,19 @@ class _AccountPageState extends State<AccountPage> {
     return normalized == 'paid' ||
         normalized == 'approved' ||
         normalized == 'done' ||
-        normalized == 'completed';
+        normalized == 'completed' ||
+        normalized == 'complete' ||
+        normalized == 'оплачено' ||
+        normalized == 'выполнено' ||
+        normalized == 'завершено';
+  }
+
+  bool _isPendingPaymentStatus(String value) {
+    final normalized = value.trim().toLowerCase();
+
+    return normalized == 'pending' ||
+        normalized == 'ожидает' ||
+        normalized == 'ожидает оплаты';
   }
 
   double _averageOrZero(List<double> values) {
@@ -627,6 +661,103 @@ class _AccountPageState extends State<AccountPage> {
     );
   }
 
+  Future<void> _loadWorkloadStats(String profileUserId) async {
+    final pb = PocketBaseService.instance.pb;
+
+    _workloadStats = _ExecutorWorkloadStats.empty();
+
+    final profileRole = _roleFromUser(_profile ?? const <String, dynamic>{});
+    if (profileRole != 'executor') return;
+
+    final tasksResult = await pb
+        .collection('tasks')
+        .getList(page: 1, perPage: 200);
+
+    final paymentStatusesResult = await pb
+        .collection('payment_statuses')
+        .getList(page: 1, perPage: 200);
+
+    final paymentRequestsResult = await pb
+        .collection('payment_requests')
+        .getList(page: 1, perPage: 200);
+
+    final taskStatusesResult = await pb
+        .collection('task_statuses')
+        .getList(page: 1, perPage: 200);
+
+    final paymentStatusById = <String, String>{};
+    final taskStatusById = <String, String>{};
+    final paidTaskIdsByRequest = <String>{};
+    final pendingPaymentTaskIdsByRequest = <String>{};
+
+    for (final status in paymentStatusesResult.items) {
+      paymentStatusById[status.id] =
+          (status.data['name'] as String? ?? '').trim().toLowerCase();
+    }
+
+    for (final status in taskStatusesResult.items) {
+      taskStatusById[status.id] =
+          (status.data['name'] as String? ?? '').trim().toLowerCase();
+    }
+
+    for (final request in paymentRequestsResult.items) {
+      final taskId = _relationId(request.data['task_id']);
+      if (taskId == null) continue;
+
+      final status = (request.data['status'] as String? ?? '').trim();
+
+      if (_isPaidStatus(status)) {
+        paidTaskIdsByRequest.add(taskId);
+      } else if (_isPendingPaymentStatus(status)) {
+        pendingPaymentTaskIdsByRequest.add(taskId);
+      }
+    }
+
+    var activeCount = 0;
+    var pendingPaymentCount = 0;
+    var completedCount = 0;
+
+    for (final task in tasksResult.items) {
+      final executorId = _relationId(task.data['executor_id']);
+      if (executorId != profileUserId) continue;
+
+      final taskStatusId = _relationId(task.data['status_id']);
+      final paymentStatusId = _relationId(task.data['payment_status_id']);
+
+      final taskStatus =
+          taskStatusId == null ? '' : taskStatusById[taskStatusId] ?? '';
+      final paymentStatus =
+          paymentStatusId == null
+              ? ''
+              : paymentStatusById[paymentStatusId] ?? '';
+
+      final completed =
+          _isPaidStatus(taskStatus) ||
+          _isPaidStatus(paymentStatus) ||
+          paidTaskIdsByRequest.contains(task.id);
+
+      final pendingPayment =
+          !completed &&
+          (_isPendingPaymentStatus(paymentStatus) ||
+              pendingPaymentTaskIdsByRequest.contains(task.id));
+
+      if (completed) {
+        completedCount++;
+      } else {
+        activeCount++;
+        if (pendingPayment) {
+          pendingPaymentCount++;
+        }
+      }
+    }
+
+    _workloadStats = _ExecutorWorkloadStats(
+      activeTasksCount: activeCount,
+      pendingPaymentCount: pendingPaymentCount,
+      completedTasksCount: completedCount,
+    );
+  }
+
   String _formatAge(String? birthRaw) {
     final birth = DateTime.tryParse(birthRaw ?? '');
     if (birth == null) return '—';
@@ -659,6 +790,11 @@ class _AccountPageState extends State<AccountPage> {
   bool get _isSelf {
     final currentUserId = PocketBaseService.instance.currentUserId;
     return widget.userId == null || _profileId == currentUserId;
+  }
+
+  bool get _isExecutorProfile {
+    if (_profile == null) return false;
+    return _roleFromUser(_profile!) == 'executor';
   }
 
   void _goBack() {
@@ -703,6 +839,11 @@ class _AccountPageState extends State<AccountPage> {
       _drawerRole = _roleFromUser(updatedProfile);
       _drawerAvatarUrl = _profileAvatarUrl;
     });
+
+    final id = _profileId;
+    if (id != null) {
+      _loadWorkloadStats(id);
+    }
   }
 
   @override
@@ -791,6 +932,10 @@ class _AccountPageState extends State<AccountPage> {
                                   _profile!['role'] as String? ?? 'executor',
                                 ),
                               ),
+                              if (_isExecutorProfile) ...[
+                                const SizedBox(height: 12),
+                                _ExecutorWorkloadCard(stats: _workloadStats),
+                              ],
                               const SizedBox(height: 12),
                               _ProfileRadarCard(stats: _radarStats),
                               const SizedBox(height: 12),
@@ -1026,6 +1171,140 @@ class _StatTile extends StatelessWidget {
             style: AppTextStyles.caption,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExecutorWorkloadCard extends StatelessWidget {
+  final _ExecutorWorkloadStats stats;
+
+  const _ExecutorWorkloadCard({required this.stats});
+
+  Color get _levelColor {
+    final count = stats.activeTasksCount;
+
+    if (count == 0) return Colors.green;
+    if (count <= 2) return AppColors.accent;
+    if (count <= 4) return Colors.orange;
+    return AppColors.danger;
+  }
+
+  String get _levelText {
+    final count = stats.activeTasksCount;
+
+    if (count == 0) return 'Свободен';
+    if (count <= 2) return 'Нормальная загрузка';
+    if (count <= 4) return 'Высокая загрузка';
+    return 'Перегруз';
+  }
+
+  double get _progress {
+    return (stats.activeTasksCount / 5).clamp(0, 1).toDouble();
+  }
+
+  String get _hint {
+    final count = stats.activeTasksCount;
+
+    if (count == 0) {
+      return 'Исполнитель сейчас не ведёт активных задач.';
+    }
+
+    if (count <= 2) {
+      return 'Исполнитель может брать новые заказы без явного риска перегруза.';
+    }
+
+    if (count <= 4) {
+      return 'Исполнитель уже занят. Сроки лучше уточнить до назначения.';
+    }
+
+    return 'У исполнителя много активных задач. Назначение нового заказа рискованно.';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Текущая загруженность'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: _levelColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                  border: Border.all(color: _levelColor.withOpacity(0.45)),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  stats.activeTasksCount.toString(),
+                  style: AppTextStyles.pageTitle.copyWith(
+                    fontSize: 24,
+                    color: _levelColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppStatusPill(
+                      text: _levelText,
+                      color: _levelColor,
+                      icon: CupertinoIcons.speedometer,
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: _progress,
+                        minHeight: 8,
+                        backgroundColor: AppColors.surfaceSoft,
+                        valueColor: AlwaysStoppedAnimation<Color>(_levelColor),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(_hint, style: AppTextStyles.body),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.work_outline_rounded,
+                  label: 'В работе',
+                  value: stats.activeTasksCount.toString(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatTile(
+                  icon: Icons.schedule_rounded,
+                  label: 'Ожидают оплаты',
+                  value: stats.pendingPaymentCount.toString(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatTile(
+                  icon: CupertinoIcons.checkmark_seal,
+                  label: 'Завершено',
+                  value: stats.completedTasksCount.toString(),
+                ),
+              ),
+            ],
           ),
         ],
       ),

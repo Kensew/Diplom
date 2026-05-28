@@ -43,7 +43,11 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
   String? _orderId;
   String? _customerId;
+  String? _customerName;
+  String? _customerPhoto;
   String? _executorId;
+  String? _executorName;
+  String? _executorPhoto;
 
   String? _paymentRequestId;
   String? _paymentRequestStatus;
@@ -284,6 +288,37 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     _customerId = _relationId(order?['customer_id']);
     _title = order?['task_description'] as String? ?? '—';
 
+    final customer = await _getRecordData('users', _customerId);
+    final executor = await _getRecordData('users', _executorId);
+
+    _customerName =
+        customer?['name'] as String? ??
+        customer?['email'] as String? ??
+        'Заказчик';
+
+    _customerPhoto =
+        _customerId == null
+            ? null
+            : PocketBaseFileService.fileUrl(
+              collectionName: 'users',
+              recordId: _customerId!,
+              fileValue: customer?['photo'],
+            );
+
+    _executorName =
+        executor?['name'] as String? ??
+        executor?['email'] as String? ??
+        'Исполнитель';
+
+    _executorPhoto =
+        _executorId == null
+            ? null
+            : PocketBaseFileService.fileUrl(
+              collectionName: 'users',
+              recordId: _executorId!,
+              fileValue: executor?['photo'],
+            );
+
     final rawDeadline = order?['deadline'] as String?;
     final parsedDeadline = DateTime.tryParse(rawDeadline ?? '');
 
@@ -498,6 +533,20 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     }
   }
 
+  void _openCustomerProfile() {
+    final id = _customerId;
+    if (id == null || id.isEmpty) return;
+
+    context.push('/account/$id');
+  }
+
+  void _openExecutorProfile() {
+    final id = _executorId;
+    if (id == null || id.isEmpty) return;
+
+    context.push('/account/$id');
+  }
+
   bool get _isPaid {
     final status = (_paymentStatus ?? '').trim().toLowerCase();
     final requestStatus = (_paymentRequestStatus ?? '').trim().toLowerCase();
@@ -630,6 +679,21 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                                 amount: _formatMoney(_paymentAmount),
                               ),
                               const SizedBox(height: 12),
+                              _TaskParticipantsCard(
+                                customerName: _customerName ?? 'Заказчик',
+                                customerPhoto: _customerPhoto,
+                                executorName: _executorName ?? 'Исполнитель',
+                                executorPhoto: _executorPhoto,
+                                onOpenCustomer:
+                                    _customerId == null
+                                        ? null
+                                        : _openCustomerProfile,
+                                onOpenExecutor:
+                                    _executorId == null
+                                        ? null
+                                        : _openExecutorProfile,
+                              ),
+                              const SizedBox(height: 12),
                               _TaskMetricsCard(
                                 estimatedTime: _estimatedTime ?? '—',
                                 timeSpent: _timeSpent ?? '—',
@@ -727,6 +791,112 @@ class _TaskMainCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskParticipantsCard extends StatelessWidget {
+  final String customerName;
+  final String? customerPhoto;
+  final String executorName;
+  final String? executorPhoto;
+  final VoidCallback? onOpenCustomer;
+  final VoidCallback? onOpenExecutor;
+
+  const _TaskParticipantsCard({
+    required this.customerName,
+    required this.customerPhoto,
+    required this.executorName,
+    required this.executorPhoto,
+    required this.onOpenCustomer,
+    required this.onOpenExecutor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Участники'),
+          const SizedBox(height: 12),
+          _ParticipantRow(
+            name: customerName,
+            role: 'Заказчик',
+            avatarUrl: customerPhoto,
+            onOpenProfile: onOpenCustomer,
+          ),
+          const SizedBox(height: 10),
+          _ParticipantRow(
+            name: executorName,
+            role: 'Исполнитель',
+            avatarUrl: executorPhoto,
+            onOpenProfile: onOpenExecutor,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ParticipantRow extends StatelessWidget {
+  final String name;
+  final String role;
+  final String? avatarUrl;
+  final VoidCallback? onOpenProfile;
+
+  const _ParticipantRow({
+    required this.name,
+    required this.role,
+    required this.avatarUrl,
+    required this.onOpenProfile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      onTap: onOpenProfile,
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      radius: AppRadii.sm,
+      child: Row(
+        children: [
+          AppProfileAvatar(avatarUrl: avatarUrl, size: 42),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.trim().isEmpty ? role : name,
+                  style: AppTextStyles.cardTitle.copyWith(fontSize: 15),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(role, style: AppTextStyles.caption),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Профиль',
+            onPressed: onOpenProfile,
+            icon: Icon(
+              onOpenProfile == null
+                  ? CupertinoIcons.person_crop_circle_badge_exclam
+                  : CupertinoIcons.person_crop_circle,
+              color:
+                  onOpenProfile == null
+                      ? AppColors.textMuted
+                      : AppColors.accent,
+            ),
+          ),
+          const Icon(
+            CupertinoIcons.chevron_right,
+            size: 16,
+            color: AppColors.textMuted,
           ),
         ],
       ),

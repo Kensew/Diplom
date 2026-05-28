@@ -197,47 +197,45 @@ class _SupportCreatePageState extends State<SupportCreatePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      drawer:
-          (_role != null && _name != null)
-              ? AppDrawer(role: _role!, displayName: _name!, avatarUrl: _photo)
-              : null,
+      drawer: (_role != null && _name != null)
+          ? AppDrawer(role: _role!, displayName: _name!, avatarUrl: _photo)
+          : null,
       backgroundColor: AppColors.background,
       body: AppScreenBackground(
         child: SafeArea(
-          child:
-              _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? AppErrorState(message: _error!, onRetry: _loadDrawerData)
-                  : Column(
-                    children: [
-                      AppTopBar(
-                        title: 'Новое обращение',
-                        subtitle: 'Опишите вопрос для поддержки',
-                        onBack: _goBack,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? AppErrorState(message: _error!, onRetry: _loadDrawerData)
+              : Column(
+                  children: [
+                    AppTopBar(
+                      title: 'Новое обращение',
+                      subtitle: 'Опишите вопрос для поддержки',
+                      onBack: _goBack,
+                    ),
+                    Expanded(
+                      child: ListView(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                        children: [
+                          _SupportIntroCard(
+                            name: _name ?? 'Пользователь',
+                            avatarUrl: _photo,
+                            role: _role ?? 'executor',
+                          ),
+                          const SizedBox(height: 12),
+                          _SupportRequestFormCard(
+                            controller: _reasonCtrl,
+                            saving: _saving,
+                          ),
+                          const SizedBox(height: 12),
+                          _SubmitCard(saving: _saving, onSubmit: _submit),
+                        ],
                       ),
-                      Expanded(
-                        child: ListView(
-                          physics: const BouncingScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-                          children: [
-                            _SupportIntroCard(
-                              name: _name ?? 'Пользователь',
-                              avatarUrl: _photo,
-                              role: _role ?? 'executor',
-                            ),
-                            const SizedBox(height: 12),
-                            _SupportRequestFormCard(
-                              controller: _reasonCtrl,
-                              saving: _saving,
-                            ),
-                            const SizedBox(height: 12),
-                            _SubmitCard(saving: _saving, onSubmit: _submit),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
@@ -359,14 +357,13 @@ class _SubmitCard extends StatelessWidget {
         children: [
           ElevatedButton.icon(
             onPressed: saving ? null : onSubmit,
-            icon:
-                saving
-                    ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                    : const Icon(CupertinoIcons.paperplane_fill),
+            icon: saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(CupertinoIcons.paperplane_fill),
             label: Text(saving ? 'Создаём обращение...' : 'Создать обращение'),
           ),
           const SizedBox(height: 10),
