@@ -412,8 +412,6 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       final customerId = _relationId(order['customer_id']);
       if (customerId != userId) continue;
 
-      final complexityFinal = (task['complexity_final'] as num?)?.toInt();
-
       final requestedById = _relationId(payment.data['requested_by']);
       final requestedBy = await _getRecordData('users', requestedById);
 
@@ -550,6 +548,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       'pending',
       'unpaid',
     ]);
+
     final orderComplexityAuto = (order?['complexity_auto'] as num?)?.toInt();
     final proposedComplexity =
         item.complexityProposed ?? item.complexityAuto ?? orderComplexityAuto;
@@ -712,20 +711,30 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     );
   }
 
+  List<_ReqItem> get _applicationItems {
+    return _items.where((item) => item.type == _ReqType.application).toList();
+  }
+
+  List<_ReqItem> get _paymentItems {
+    return _items.where((item) => item.type == _ReqType.payment).toList();
+  }
+
   int get _pendingCount {
     return _items.where((item) => _isPending(item.status)).length;
   }
 
   int get _applicationsCount {
-    return _items.where((item) => item.type == _ReqType.application).length;
+    return _applicationItems.length;
   }
 
   int get _paymentsCount {
-    return _items.where((item) => item.type == _ReqType.payment).length;
+    return _paymentItems.length;
   }
 
   String _typeLabel(_ReqType type) {
-    return type == _ReqType.application ? 'Заявка на заказ' : 'Запрос оплаты';
+    return type == _ReqType.application
+        ? 'Заявка на выполнение'
+        : 'Запрос оплаты';
   }
 
   IconData _typeIcon(_ReqType type) {
@@ -762,10 +771,30 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     return AppStatusPill.pending('Ожидает решения');
   }
 
+  Widget _requestCard(_ReqItem item, bool pageBusy) {
+    return _RequestCard(
+      item: item,
+      busy: pageBusy,
+      itemBusy: _busyItemId == item.id,
+      typeLabel: _typeLabel(item.type),
+      typeIcon: _typeIcon(item.type),
+      statusPill: _statusPill(item),
+      amountText: _formatMoney(item.amount),
+      dateText: _fmt.format(item.createdAt),
+      positiveButtonText: _positiveButtonText(item),
+      onAccept: () => _acceptItem(item),
+      onReject: () => _decide(item, false),
+      onOpenTask: () => _openTaskDetails(item),
+      onOpenFeedback: () => _openFeedbackForItem(item),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasPending = _pendingCount > 0;
     final pageBusy = _busyItemId != null;
+    final applications = _applicationItems;
+    final payments = _paymentItems;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -865,67 +894,19 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                                   12,
                                   16,
                                   12,
-                                  8,
+                                  20,
                                 ),
                                 sliver: SliverToBoxAdapter(
-                                  child: AppSectionHeader(
-                                    title: 'Список',
-                                    count: _items.length,
+                                  child: _RequestsTwoColumnLayout(
+                                    applications: applications,
+                                    payments: payments,
+                                    applicationCardBuilder:
+                                        (item) => _requestCard(item, pageBusy),
+                                    paymentCardBuilder:
+                                        (item) => _requestCard(item, pageBusy),
                                   ),
                                 ),
                               ),
-                              if (_items.isEmpty)
-                                const SliverFillRemaining(
-                                  hasScrollBody: false,
-                                  child: AppEmptyState(
-                                    icon: CupertinoIcons.tray,
-                                    title: 'Заявок пока нет',
-                                    subtitle:
-                                        'Когда исполнитель подаст заявку или запросит оплату, запись появится здесь.',
-                                  ),
-                                )
-                              else
-                                SliverPadding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    0,
-                                    12,
-                                    20,
-                                  ),
-                                  sliver: SliverList(
-                                    delegate: SliverChildBuilderDelegate((
-                                      context,
-                                      index,
-                                    ) {
-                                      if (index.isOdd) {
-                                        return const SizedBox(height: 8);
-                                      }
-
-                                      final itemIndex = index ~/ 2;
-                                      final item = _items[itemIndex];
-
-                                      return _RequestCard(
-                                        item: item,
-                                        busy: pageBusy,
-                                        itemBusy: _busyItemId == item.id,
-                                        typeLabel: _typeLabel(item.type),
-                                        typeIcon: _typeIcon(item.type),
-                                        statusPill: _statusPill(item),
-                                        amountText: _formatMoney(item.amount),
-                                        dateText: _fmt.format(item.createdAt),
-                                        positiveButtonText: _positiveButtonText(
-                                          item,
-                                        ),
-                                        onAccept: () => _acceptItem(item),
-                                        onReject: () => _decide(item, false),
-                                        onOpenTask:
-                                            () => _openTaskDetails(item),
-                                        onOpenFeedback:
-                                            () => _openFeedbackForItem(item),
-                                      );
-                                    }, childCount: _items.length * 2 - 1),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -1071,6 +1052,105 @@ class _StatCard extends StatelessWidget {
   }
 }
 
+class _RequestsTwoColumnLayout extends StatelessWidget {
+  final List<_ReqItem> applications;
+  final List<_ReqItem> payments;
+  final Widget Function(_ReqItem item) applicationCardBuilder;
+  final Widget Function(_ReqItem item) paymentCardBuilder;
+
+  const _RequestsTwoColumnLayout({
+    required this.applications,
+    required this.payments,
+    required this.applicationCardBuilder,
+    required this.paymentCardBuilder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 760;
+
+        final left = _RequestsColumn(
+          title: 'Заявки на выполнение',
+          icon: Icons.assignment_ind_outlined,
+          emptyTitle: 'Заявок нет',
+          emptySubtitle: 'Заявки исполнителей появятся здесь.',
+          items: applications,
+          cardBuilder: applicationCardBuilder,
+        );
+
+        final right = _RequestsColumn(
+          title: 'Заявки на оплату',
+          icon: Icons.payments_rounded,
+          emptyTitle: 'Запросов оплаты нет',
+          emptySubtitle: 'После запроса оплаты запись появится здесь.',
+          items: payments,
+          cardBuilder: paymentCardBuilder,
+        );
+
+        if (!wide) {
+          return Column(children: [left, const SizedBox(height: 12), right]);
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: left),
+            const SizedBox(width: 12),
+            Expanded(child: right),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RequestsColumn extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final String emptyTitle;
+  final String emptySubtitle;
+  final List<_ReqItem> items;
+  final Widget Function(_ReqItem item) cardBuilder;
+
+  const _RequestsColumn({
+    required this.title,
+    required this.icon,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+    required this.items,
+    required this.cardBuilder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: title, count: items.length),
+          const SizedBox(height: 10),
+          if (items.isEmpty)
+            AppEmptyState(
+              icon: icon,
+              title: emptyTitle,
+              subtitle: emptySubtitle,
+            )
+          else
+            ...items.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: cardBuilder(item),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RequestCard extends StatelessWidget {
   final _ReqItem item;
   final bool busy;
@@ -1105,8 +1185,8 @@ class _RequestCard extends StatelessWidget {
   bool get _pending => item.status == 'pending';
   bool get _approved => item.status == 'approved';
   bool get _hasTask => item.taskId != null && item.taskId!.isNotEmpty;
-bool get _canLeaveFeedback =>
-    item.type == _ReqType.payment && _approved && _hasTask;
+  bool get _canLeaveFeedback =>
+      item.type == _ReqType.payment && _approved && _hasTask;
 
   @override
   Widget build(BuildContext context) {

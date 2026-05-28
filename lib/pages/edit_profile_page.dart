@@ -34,8 +34,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   bool _isSaving = false;
   bool _loading = true;
-  bool _descriptionTouched = false;
-  bool _birthDateTouched = false;
 
   String? _error;
   String? _role;
@@ -136,15 +134,36 @@ class _EditProfilePageState extends State<EditProfilePage> {
     final raw = value.toString().trim();
     if (raw.isEmpty) return null;
 
-    return DateTime.tryParse(raw);
+    final isoParsed = DateTime.tryParse(raw);
+    if (isoParsed != null) return isoParsed;
+
+    try {
+      return _dateFmt.parseStrict(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  DateTime _dateOnly(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
   }
 
   bool _isFutureDate(DateTime date) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final normalized = DateTime(date.year, date.month, date.day);
+    final normalized = _dateOnly(date);
 
     return normalized.isAfter(today);
+  }
+
+  DateTime _safeInitialBirthDate() {
+    final now = DateTime.now();
+    final fallback = DateTime(now.year - 18, now.month, now.day);
+
+    if (_birthDate == null) return fallback;
+    if (_isFutureDate(_birthDate!)) return fallback;
+
+    return _dateOnly(_birthDate!);
   }
 
   Future<void> _loadCurrentProfile() async {
@@ -177,16 +196,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
       final birth = _parseBirthDate(user.data['birth_date']);
 
-      if (birth != null) {
-        _birthDate = birth.toLocal();
+      if (birth != null && !_isFutureDate(birth)) {
+        _birthDate = _dateOnly(birth.toLocal());
         _dateCtrl.text = _dateFmt.format(_birthDate!);
       } else {
         _birthDate = null;
         _dateCtrl.clear();
       }
-
-      _descriptionTouched = false;
-      _birthDateTouched = false;
     } catch (e) {
       _error = 'Ошибка загрузки профиля: $e';
     } finally {
@@ -216,7 +232,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
     final picked = await showDatePicker(
       context: context,
-      initialDate: _birthDate ?? DateTime(now.year - 18, now.month, now.day),
+      initialDate: _safeInitialBirthDate(),
       firstDate: DateTime(1900),
       lastDate: today,
     );
@@ -230,15 +246,17 @@ class _EditProfilePageState extends State<EditProfilePage> {
       return;
     }
 
+    final normalized = _dateOnly(picked);
+
     setState(() {
-      _birthDate = picked;
-      _birthDateTouched = true;
-      _dateCtrl.text = _dateFmt.format(picked);
+      _birthDate = normalized;
+      _dateCtrl.text = _dateFmt.format(normalized);
     });
   }
 
   Future<void> _saveProfile() async {
     final name = _nameCtrl.text.trim();
+    final description = _descCtrl.text.trim();
 
     if (name.isEmpty) {
       ScaffoldMessenger.of(
@@ -265,19 +283,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
         throw 'Неавторизован';
       }
 
-      final existingUser = await pb.collection('users').getOne(userId);
-      final existingDescription =
-          existingUser.data['description'] as String? ?? '';
-      final existingBirthDate = existingUser.data['birth_date'];
+      final normalizedBirthDate =
+          _birthDate == null ? null : _dateOnly(_birthDate!);
+      final savedBirthDateRaw = normalizedBirthDate?.toIso8601String();
 
-      final description =
-          _descriptionTouched ? _descCtrl.text.trim() : existingDescription;
-
-      final body = <String, dynamic>{'name': name, 'description': description};
-
-      if (_birthDateTouched && _birthDate != null) {
-        body['birth_date'] = _birthDate!.toIso8601String();
-      }
+      final body = <String, dynamic>{
+        'name': name,
+        'description': description,
+        if (savedBirthDateRaw != null) 'birth_date': savedBirthDateRaw,
+      };
 
       if (_pickedImage == null) {
         await pb.collection('users').update(userId, body: body);
@@ -306,6 +320,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
         pb.authStore.save(token, freshUser);
       }
 
+      final returnedBirthDate =
+          freshUser.data['birth_date'] ?? savedBirthDateRaw;
+      final freshBirth =
+          _parseBirthDate(returnedBirthDate) ?? normalizedBirthDate;
+
       _createdAt = freshUser.get<String>('created') ?? _createdAt;
       _email = freshUser.data['email'] as String? ?? _email;
       _role = _roleFromUser(freshUser.data);
@@ -313,16 +332,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
       _nameCtrl.text = name;
       _descCtrl.text = description;
 
-      final returnedBirthDate =
-          _birthDateTouched
-              ? _birthDate?.toIso8601String()
-              : freshUser.data['birth_date'] ?? existingBirthDate;
-
-      final freshBirth = _parseBirthDate(returnedBirthDate);
-
-      if (freshBirth != null) {
-        _birthDate = freshBirth.toLocal();
+      if (freshBirth != null && !_isFutureDate(freshBirth)) {
+        _birthDate = _dateOnly(freshBirth.toLocal());
         _dateCtrl.text = _dateFmt.format(_birthDate!);
+      } else {
+        _birthDate = null;
+        _dateCtrl.clear();
       }
 
       _avatarUrl = _fileUrl(
@@ -332,8 +347,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
       );
 
       _pickedImage = null;
-      _descriptionTouched = false;
-      _birthDateTouched = false;
 
       if (!mounted) return;
 
@@ -426,9 +439,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
                               dateCtrl: _dateCtrl,
                               saving: _isSaving,
                               onPickDate: _pickDate,
-                              onDescriptionChanged: (_) {
-                                _descriptionTouched = true;
-                              },
                             ),
                             const SizedBox(height: 12),
                             _SaveCard(saving: _isSaving, onSave: _saveProfile),
@@ -533,7 +543,6 @@ class _ProfileFormCard extends StatelessWidget {
   final TextEditingController dateCtrl;
   final bool saving;
   final VoidCallback onPickDate;
-  final ValueChanged<String> onDescriptionChanged;
 
   const _ProfileFormCard({
     required this.nameCtrl,
@@ -541,7 +550,6 @@ class _ProfileFormCard extends StatelessWidget {
     required this.dateCtrl,
     required this.saving,
     required this.onPickDate,
-    required this.onDescriptionChanged,
   });
 
   @override
@@ -582,7 +590,6 @@ class _ProfileFormCard extends StatelessWidget {
             enabled: !saving,
             minLines: 4,
             maxLines: 8,
-            onChanged: onDescriptionChanged,
             style: AppTextStyles.body.copyWith(color: AppColors.text),
             decoration: const InputDecoration(
               labelText: 'Описание',

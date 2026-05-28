@@ -12,6 +12,8 @@ import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
+const String _attachmentOnlyText = 'Вложение';
+
 class TasksCommunicationPage extends StatefulWidget {
   final String taskId;
 
@@ -123,13 +125,6 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
         lower.endsWith('.gif');
   }
 
-  String _fileExtension(String name) {
-    final dot = name.lastIndexOf('.');
-    if (dot == -1 || dot == name.length - 1) return 'FILE';
-
-    return name.substring(dot + 1).toUpperCase();
-  }
-
   DateTime? _parseDate(dynamic raw) {
     if (raw is! String) return null;
     return DateTime.tryParse(raw)?.toLocal();
@@ -154,6 +149,28 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
     } catch (_) {
       return null;
     }
+  }
+
+  Map<String, dynamic> _messageFromRecord(dynamic record) {
+    return {
+      'id': record.id,
+      'user_id': _relationId(record.data['user_id']) ?? '',
+      'text': record.data['text'] as String? ?? '',
+      'created': record.get<String>('created') ?? '',
+    };
+  }
+
+  void _sortMessages() {
+    _messages.sort((a, b) {
+      final da = DateTime.tryParse(a['created'] as String? ?? '');
+      final db = DateTime.tryParse(b['created'] as String? ?? '');
+
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+
+      return da.compareTo(db);
+    });
   }
 
   Future<void> _loadAll() async {
@@ -199,26 +216,11 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
       final taskId = _relationId(record.data['task_id']);
       if (taskId != widget.taskId) continue;
 
-      loaded.add({
-        'id': record.id,
-        'user_id': _relationId(record.data['user_id']) ?? '',
-        'text': record.data['text'] as String? ?? '',
-        'created': record.get<String>('created') ?? '',
-      });
+      loaded.add(_messageFromRecord(record));
     }
 
-    loaded.sort((a, b) {
-      final da = DateTime.tryParse(a['created'] as String? ?? '');
-      final db = DateTime.tryParse(b['created'] as String? ?? '');
-
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-
-      return da.compareTo(db);
-    });
-
     _messages = loaded;
+    _sortMessages();
   }
 
   Future<void> _loadAttachments() async {
@@ -294,12 +296,7 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
         final taskId = _relationId(record.data['task_id']);
         if (taskId != widget.taskId) return;
 
-        final message = {
-          'id': record.id,
-          'user_id': _relationId(record.data['user_id']) ?? '',
-          'text': record.data['text'] as String? ?? '',
-          'created': record.get<String>('created') ?? '',
-        };
+        final message = _messageFromRecord(record);
 
         setState(() {
           if (event.action == 'create') {
@@ -313,19 +310,11 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
             _attachmentsByMessageId.remove(record.id);
           }
 
-          _messages.sort((a, b) {
-            final da = DateTime.tryParse(a['created'] as String? ?? '');
-            final db = DateTime.tryParse(b['created'] as String? ?? '');
-
-            if (da == null && db == null) return 0;
-            if (da == null) return 1;
-            if (db == null) return -1;
-
-            return da.compareTo(db);
-          });
+          _sortMessages();
         });
 
         await _loadUsersForMessages();
+        await _loadAttachments();
 
         if (mounted) {
           setState(() {});
@@ -356,7 +345,7 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: false,
       withData: true,
-      type: FileType.any,
+      type: FileType.image,
     );
 
     if (result == null || result.files.isEmpty) return;
@@ -367,10 +356,10 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
   Future<void> _sendMessage({PlatformFile? file}) async {
     if (_sending) return;
 
-    final text = _controller.text.trim();
+    final rawText = _controller.text.trim();
     final hasFile = file != null;
 
-    if (text.isEmpty && !hasFile) return;
+    if (rawText.isEmpty && !hasFile) return;
 
     final userId = _currentUserId;
     if (userId == null) {
@@ -378,24 +367,31 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
       return;
     }
 
+    final messageText =
+        rawText.isEmpty && hasFile ? _attachmentOnlyText : rawText;
+
     setState(() => _sending = true);
 
     try {
+      final bytes = hasFile ? file.bytes : null;
+
+      if (hasFile && bytes == null) {
+        throw 'Не удалось прочитать файл';
+      }
+
       _controller.clear();
 
       final message = await PocketBaseService.instance.pb
           .collection('tasks_messages')
           .create(
-            body: {'task_id': widget.taskId, 'user_id': userId, 'text': text},
+            body: {
+              'task_id': widget.taskId,
+              'user_id': userId,
+              'text': messageText,
+            },
           );
 
       if (hasFile) {
-        final bytes = file.bytes;
-
-        if (bytes == null) {
-          throw 'Не удалось прочитать файл';
-        }
-
         await PocketBaseService.instance.pb
             .collection('task_message_attachments')
             .create(
@@ -403,7 +399,7 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
               files: [
                 http.MultipartFile.fromBytes(
                   'photo',
-                  bytes,
+                  bytes!,
                   filename: file.name,
                 ),
               ],
@@ -529,7 +525,7 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
                                   icon: CupertinoIcons.chat_bubble_2,
                                   title: 'Сообщений пока нет',
                                   subtitle:
-                                      'Напиши первое сообщение или прикрепи файл.',
+                                      'Напиши первое сообщение или прикрепи изображение.',
                                 )
                                 : ListView.builder(
                                   controller: _scrollController,
@@ -609,8 +605,10 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasText = text.trim().isNotEmpty;
     final hasAttachments = attachments.isNotEmpty;
+    final hasText =
+        text.trim().isNotEmpty &&
+        !(hasAttachments && text.trim() == _attachmentOnlyText);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -834,7 +832,7 @@ class _ChatInputBar extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             AppIconSurfaceButton(
-              icon: CupertinoIcons.paperclip,
+              icon: CupertinoIcons.photo,
               onTap: sending ? () {} : onAttach,
               size: 42,
               iconColor: AppColors.textSecondary,

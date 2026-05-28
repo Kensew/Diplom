@@ -1,5 +1,7 @@
 // lib/pages/tasks_page.dart
 
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -34,14 +36,27 @@ class _TasksPageState extends State<TasksPage> {
   String? _name;
   String? _photo;
 
+  Timer? _refreshDebounce;
+  bool _silentRefreshing = false;
+
   @override
   void initState() {
     super.initState();
     _loadAll();
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
+    _refreshDebounce?.cancel();
+
+    final pb = PocketBaseService.instance.pb;
+    pb.collection('tasks').unsubscribe('*');
+    pb.collection('orders').unsubscribe('*');
+    pb.collection('payment_requests').unsubscribe('*');
+    pb.collection('task_statuses').unsubscribe('*');
+    pb.collection('payment_statuses').unsubscribe('*');
+
     _searchController.dispose();
     super.dispose();
   }
@@ -96,6 +111,35 @@ class _TasksPageState extends State<TasksPage> {
     return _roleFallbackByEmail(email);
   }
 
+  Future<void> _subscribeRealtime() async {
+    final pb = PocketBaseService.instance.pb;
+
+    Future<void> onAnyChange(dynamic _) async {
+      _scheduleSilentRefresh();
+    }
+
+    await pb.collection('tasks').subscribe('*', onAnyChange);
+    await pb.collection('orders').subscribe('*', onAnyChange);
+    await pb.collection('payment_requests').subscribe('*', onAnyChange);
+    await pb.collection('task_statuses').subscribe('*', onAnyChange);
+    await pb.collection('payment_statuses').subscribe('*', onAnyChange);
+  }
+
+  void _scheduleSilentRefresh() {
+    _refreshDebounce?.cancel();
+
+    _refreshDebounce = Timer(const Duration(milliseconds: 350), () async {
+      if (!mounted || _silentRefreshing) return;
+
+      _silentRefreshing = true;
+      try {
+        await _loadAll(showLoader: false);
+      } finally {
+        _silentRefreshing = false;
+      }
+    });
+  }
+
   Future<Map<String, dynamic>?> _getRecordData(
     String collection,
     String? id,
@@ -117,11 +161,13 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
-  Future<void> _loadAll() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadAll({bool showLoader = true}) async {
+    if (showLoader) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final service = PocketBaseService.instance;
@@ -134,13 +180,13 @@ class _TasksPageState extends State<TasksPage> {
 
       final user = await pb.collection('users').getOne(userId);
 
-      _role = _roleFromUser(user.data);
-      _name =
+      final role = _roleFromUser(user.data);
+      final name =
           user.data['name'] as String? ??
           user.data['email'] as String? ??
           'User';
 
-      _photo = PocketBaseFileService.fileUrl(
+      final photo = PocketBaseFileService.fileUrl(
         collectionName: 'users',
         recordId: user.id,
         fileValue: user.data['photo'],
@@ -194,11 +240,23 @@ class _TasksPageState extends State<TasksPage> {
         return db.compareTo(da);
       });
 
-      _tasks = result;
+      if (!mounted) return;
+
+      setState(() {
+        _role = role;
+        _name = name;
+        _photo = photo;
+        _tasks = result;
+        _error = null;
+      });
     } catch (e) {
-      _error = 'Не удалось загрузить задачи: $e';
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Не удалось загрузить задачи: $e';
+      });
     } finally {
-      if (mounted) {
+      if (mounted && showLoader) {
         setState(() => _loading = false);
       }
     }
