@@ -758,6 +758,10 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     context.push('/orders/details/$id');
   }
 
+  void _openExecutors() {
+    context.push('/customer/executors');
+  }
+
   Future<void> _openCreateOrder() async {
     await context.push('/customer/create');
     await _loadAll();
@@ -991,6 +995,10 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                         final order =
                                             filteredOrders[orderIndex];
                                         final id = order['id'] as String;
+                                        final assigned = _hasExecutor(order);
+                                        final archived = _isArchivedOrder(
+                                          order,
+                                        );
 
                                         return _CustomerOrderCard(
                                           title:
@@ -1009,8 +1017,8 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                             order['deadline'] as String?,
                                           ),
                                           price: _formatMoney(_priceOf(order)),
-                                          assigned: _hasExecutor(order),
-                                          archived: _isArchivedOrder(order),
+                                          assigned: assigned,
+                                          archived: archived,
                                           executorName:
                                               order['executor_name'] as String?,
                                           taskStatus:
@@ -1020,6 +1028,10 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                                   as String?,
                                           onTap: () => _openOrder(id),
                                           onDelete: () => _deleteOrder(id),
+                                          onFindExecutor:
+                                              !assigned && !archived
+                                                  ? _openExecutors
+                                                  : null,
                                         );
                                       },
                                       childCount: filteredOrders.length * 2 - 1,
@@ -1276,6 +1288,7 @@ class _CustomerOrderCard extends StatelessWidget {
   final String? paymentStatus;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback? onFindExecutor;
 
   const _CustomerOrderCard({
     required this.title,
@@ -1290,6 +1303,7 @@ class _CustomerOrderCard extends StatelessWidget {
     required this.paymentStatus,
     required this.onTap,
     required this.onDelete,
+    required this.onFindExecutor,
   });
 
   @override
@@ -1410,6 +1424,17 @@ class _CustomerOrderCard extends StatelessWidget {
               ),
             ],
           ),
+          if (onFindExecutor != null) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onFindExecutor,
+                icon: const Icon(Icons.person_search_rounded),
+                label: const Text('Найти исполнителя'),
+              ),
+            ),
+          ],
         ],
       ),
     );

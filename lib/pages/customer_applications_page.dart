@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/application_decision_service.dart';
 import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
@@ -31,6 +32,8 @@ class _ReqItem {
   final int? complexityFinal;
   final String? complexitySource;
   final String? complexityReason;
+  final String source;
+  final String message;
 
   _ReqItem({
     required this.id,
@@ -50,6 +53,8 @@ class _ReqItem {
     this.complexityFinal,
     this.complexitySource,
     this.complexityReason,
+    this.source = 'executor_apply',
+    this.message = '',
   });
 }
 
@@ -83,22 +88,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
   }
 
   String? _relationId(dynamic value) {
-    if (value == null) return null;
-
-    if (value is String) {
-      final trimmed = value.trim();
-      return trimmed.isEmpty ? null : trimmed;
-    }
-
-    if (value is List && value.isNotEmpty) {
-      final first = value.first;
-      if (first is String) {
-        final trimmed = first.trim();
-        return trimmed.isEmpty ? null : trimmed;
-      }
-    }
-
-    return null;
+    return ApplicationDecisionService.relationId(value);
   }
 
   String? _firstFileName(dynamic value) {
@@ -175,45 +165,31 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
   }
 
   String _status(dynamic value) {
-    final status = value?.toString().trim().toLowerCase();
+    return ApplicationDecisionService.normalizedStatus(value);
+  }
 
-    if (status == 'approved' || status == 'rejected' || status == 'pending') {
-      return status!;
-    }
-
-    return 'pending';
+  String _source(dynamic value) {
+    return ApplicationDecisionService.normalizedApplicationSource(value);
   }
 
   bool _isPending(String status) {
     return status.trim().toLowerCase() == 'pending';
   }
 
-  int? _intValue(dynamic value) {
-    if (value == null) return null;
-    if (value is num) return value.toInt();
+  bool _isCustomerInvite(_ReqItem item) {
+    return item.type == _ReqType.application &&
+        item.source == 'customer_invite';
+  }
 
-    return int.tryParse(value.toString());
+  int? _intValue(dynamic value) {
+    return ApplicationDecisionService.intValue(value);
   }
 
   Future<Map<String, dynamic>?> _getRecordData(
     String collection,
     String? id,
   ) async {
-    if (id == null || id.isEmpty) return null;
-
-    try {
-      final record = await PocketBaseService.instance.pb
-          .collection(collection)
-          .getOne(id);
-
-      return {
-        'id': record.id,
-        'created': record.get<String>('created') ?? '',
-        ...record.data,
-      };
-    } catch (_) {
-      return null;
-    }
+    return ApplicationDecisionService.getRecordData(collection, id);
   }
 
   String? _userPhotoUrl(Map<String, dynamic>? user) {
@@ -229,102 +205,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     );
   }
 
-  Future<String?> _firstIdFromCollection(
-    String collection,
-    List<String> preferredNames,
-  ) async {
-    final result = await PocketBaseService.instance.pb
-        .collection(collection)
-        .getList(page: 1, perPage: 200);
-
-    if (result.items.isEmpty) return null;
-
-    for (final name in preferredNames) {
-      for (final item in result.items) {
-        final itemName =
-            (item.data['name'] as String? ?? '').trim().toLowerCase();
-
-        if (itemName == name.trim().toLowerCase()) {
-          return item.id;
-        }
-      }
-    }
-
-    return result.items.first.id;
-  }
-
   Future<String?> _taskIdForOrder(String orderId) async {
-    final result = await PocketBaseService.instance.pb
-        .collection('tasks')
-        .getList(page: 1, perPage: 200);
-
-    final tasks =
-        result.items.where((task) {
-          final taskOrderId = _relationId(task.data['order_id']);
-          return taskOrderId == orderId;
-        }).toList();
-
-    if (tasks.isEmpty) return null;
-
-    tasks.sort((a, b) {
-      final da = DateTime.tryParse(a.get<String>('created') ?? '');
-      final db = DateTime.tryParse(b.get<String>('created') ?? '');
-
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-
-      return db.compareTo(da);
-    });
-
-    return tasks.first.id;
-  }
-
-  Future<void> _rejectOtherApplicationsForOrder({
-    required String orderId,
-    required String acceptedApplicationId,
-  }) async {
-    final pb = PocketBaseService.instance.pb;
-
-    final apps = await pb
-        .collection('applications')
-        .getList(page: 1, perPage: 200);
-
-    for (final app in apps.items) {
-      if (app.id == acceptedApplicationId) continue;
-
-      final appOrderId = _relationId(app.data['order_id']);
-      final appStatus = _status(app.data['status']);
-
-      if (appOrderId == orderId && appStatus == 'pending') {
-        await pb
-            .collection('applications')
-            .update(app.id, body: {'status': 'rejected'});
-      }
-    }
-  }
-
-  int _resolveFinalComplexity(_ReqItem item) {
-    final auto = (item.orderComplexityAuto ?? 3).clamp(1, 5).toInt();
-    final proposed = item.complexityProposed;
-
-    if (proposed == null) return auto;
-
-    return OrderComplexityService.clampProposedComplexity(
-      autoComplexity: auto,
-      proposedComplexity: proposed,
-    );
-  }
-
-  String _resolveComplexitySource(_ReqItem item) {
-    final auto = (item.orderComplexityAuto ?? 3).clamp(1, 5).toInt();
-    final finalComplexity = _resolveFinalComplexity(item);
-
-    if (finalComplexity == auto) {
-      return 'auto';
-    }
-
-    return 'executor_adjusted';
+    return ApplicationDecisionService.taskIdForOrder(orderId);
   }
 
   Future<void> _loadAll() async {
@@ -426,6 +308,8 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
           complexityReason: app.data['complexity_reason'] as String?,
           complexityFinal: _intValue(task?['complexity_final']),
           complexitySource: task?['complexity_source'] as String?,
+          source: _source(app.data['source']),
+          message: app.data['message'] as String? ?? '',
         ),
       );
     }
@@ -492,6 +376,10 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       return;
     }
 
+    if (_isCustomerInvite(item)) {
+      return;
+    }
+
     await _decide(item, true);
   }
 
@@ -527,13 +415,26 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     });
 
     try {
-      final pb = PocketBaseService.instance.pb;
-      final newStatus = accept ? 'approved' : 'rejected';
+      final currentUserId = PocketBaseService.instance.currentUserId;
+
+      if (currentUserId == null) {
+        throw 'Неавторизован';
+      }
 
       if (item.type == _ReqType.application) {
-        await _decideApplication(pb, item, newStatus, accept);
+        if (accept) {
+          await ApplicationDecisionService.acceptApplication(
+            applicationId: item.id,
+            actorUserId: currentUserId,
+          );
+        } else {
+          await ApplicationDecisionService.rejectApplication(
+            applicationId: item.id,
+            actorUserId: currentUserId,
+          );
+        }
       } else {
-        await _decidePayment(pb, item, newStatus, accept);
+        await _decidePayment(item, accept ? 'approved' : 'rejected', accept);
       }
 
       await _loadAll();
@@ -547,90 +448,23 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     }
   }
 
-  Future<void> _decideApplication(
-    dynamic pb,
-    _ReqItem item,
-    String newStatus,
-    bool accept,
-  ) async {
-    await pb
-        .collection('applications')
-        .update(item.id, body: {'status': newStatus});
-
-    if (!accept) return;
-
-    if (item.orderId == null || item.executorId == null) {
-      throw 'Нет orderId или executorId';
-    }
-
-    final order = await _getRecordData('orders', item.orderId);
-    final currentExecutorId = _relationId(order?['executor_id']);
-
-    if (currentExecutorId != null && currentExecutorId != item.executorId) {
-      throw 'Заказ уже назначен другому исполнителю';
-    }
-
-    await pb
-        .collection('orders')
-        .update(item.orderId!, body: {'executor_id': item.executorId});
-
-    await _rejectOtherApplicationsForOrder(
-      orderId: item.orderId!,
-      acceptedApplicationId: item.id,
-    );
-
-    final existingTaskId = await _taskIdForOrder(item.orderId!);
-    if (existingTaskId != null) return;
-
-    final statusId = await _firstIdFromCollection('task_statuses', [
-      'new',
-      'pending',
-      'created',
-    ]);
-
-    final paymentStatusId = await _firstIdFromCollection('payment_statuses', [
-      'none',
-      'pending',
-      'unpaid',
-    ]);
-
-    final finalComplexity = _resolveFinalComplexity(item);
-    final complexitySource = _resolveComplexitySource(item);
-
-    await pb
-        .collection('tasks')
-        .create(
-          body: {
-            'order_id': item.orderId,
-            'executor_id': item.executorId,
-            if (statusId != null) 'status_id': statusId,
-            if (paymentStatusId != null) 'payment_status_id': paymentStatusId,
-            'estimated_time': 0,
-            'time_spent': 0,
-            'payment_amount': item.amount ?? 0,
-            'complexity_final': finalComplexity,
-            'complexity_source': complexitySource,
-          },
-        );
-  }
-
   Future<void> _decidePayment(
-    dynamic pb,
     _ReqItem item,
     String newStatus,
     bool accept,
   ) async {
+    final pb = PocketBaseService.instance.pb;
+
     await pb
         .collection('payment_requests')
         .update(item.id, body: {'status': newStatus});
 
     if (!accept || item.taskId == null) return;
 
-    final paidStatusId = await _firstIdFromCollection('payment_statuses', [
-      'paid',
-      'approved',
-      'done',
-    ]);
+    final paidStatusId = await ApplicationDecisionService.firstIdFromCollection(
+      'payment_statuses',
+      ['paid', 'approved', 'done'],
+    );
 
     if (paidStatusId == null) return;
 
@@ -674,7 +508,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
           (ctx) => AlertDialog(
             title: const Text('Отклонить все ожидающие заявки?'),
             content: const Text(
-              'Все ожидающие заявки и запросы оплаты будут отклонены.',
+              'Все ожидающие отклики, приглашения и запросы оплаты будут отклонены.',
             ),
             actions: [
               TextButton(
@@ -697,17 +531,25 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     });
 
     try {
+      final currentUserId = PocketBaseService.instance.currentUserId;
+
+      if (currentUserId == null) {
+        throw 'Неавторизован';
+      }
+
       final pb = PocketBaseService.instance.pb;
 
       for (final item in _items.where((e) => _isPending(e.status))) {
-        final collection =
-            item.type == _ReqType.application
-                ? 'applications'
-                : 'payment_requests';
-
-        await pb
-            .collection(collection)
-            .update(item.id, body: {'status': 'rejected'});
+        if (item.type == _ReqType.application) {
+          await ApplicationDecisionService.rejectApplication(
+            applicationId: item.id,
+            actorUserId: currentUserId,
+          );
+        } else {
+          await pb
+              .collection('payment_requests')
+              .update(item.id, body: {'status': 'rejected'});
+        }
       }
 
       await _loadAll();
@@ -772,20 +614,44 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
     return _paymentItems.length;
   }
 
-  String _typeLabel(_ReqType type) {
-    return type == _ReqType.application
-        ? 'Заявка на выполнение'
-        : 'Запрос оплаты';
+  int get _invitesCount {
+    return _applicationItems.where((item) => _isCustomerInvite(item)).length;
   }
 
-  IconData _typeIcon(_ReqType type) {
-    return type == _ReqType.application
-        ? Icons.assignment_ind_outlined
-        : Icons.payments_rounded;
+  String _typeLabel(_ReqItem item) {
+    if (item.type == _ReqType.payment) {
+      return 'Запрос оплаты';
+    }
+
+    if (_isCustomerInvite(item)) {
+      return 'Приглашение исполнителю';
+    }
+
+    return 'Отклик исполнителя';
+  }
+
+  IconData _typeIcon(_ReqItem item) {
+    if (item.type == _ReqType.payment) {
+      return Icons.payments_rounded;
+    }
+
+    if (_isCustomerInvite(item)) {
+      return CupertinoIcons.paperplane;
+    }
+
+    return Icons.assignment_ind_outlined;
   }
 
   String _positiveButtonText(_ReqItem item) {
     return item.type == _ReqType.payment ? 'Оплатить' : 'Принять';
+  }
+
+  String _rejectButtonText(_ReqItem item) {
+    if (_isCustomerInvite(item)) {
+      return 'Отменить';
+    }
+
+    return 'Отклонить';
   }
 
   String _formatMoney(double? amount) {
@@ -800,13 +666,23 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
   AppStatusPill _statusPill(_ReqItem item) {
     if (item.status == 'approved') {
+      if (item.type == _ReqType.payment) {
+        return AppStatusPill.success('Оплачено');
+      }
+
       return AppStatusPill.success(
-        item.type == _ReqType.payment ? 'Оплачено' : 'Принято',
+        _isCustomerInvite(item) ? 'Приглашение принято' : 'Отклик принят',
       );
     }
 
     if (item.status == 'rejected') {
-      return AppStatusPill.error('Отклонено');
+      return AppStatusPill.error(
+        _isCustomerInvite(item) ? 'Приглашение отклонено' : 'Отклонено',
+      );
+    }
+
+    if (_isCustomerInvite(item)) {
+      return AppStatusPill.pending('Ожидает исполнителя');
     }
 
     return AppStatusPill.pending('Ожидает решения');
@@ -817,12 +693,13 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
       item: item,
       busy: pageBusy,
       itemBusy: _busyItemId == item.id,
-      typeLabel: _typeLabel(item.type),
-      typeIcon: _typeIcon(item.type),
+      typeLabel: _typeLabel(item),
+      typeIcon: _typeIcon(item),
       statusPill: _statusPill(item),
       amountText: _formatMoney(item.amount),
       dateText: _fmt.format(item.createdAt),
       positiveButtonText: _positiveButtonText(item),
+      rejectButtonText: _rejectButtonText(item),
       onAccept: () => _acceptItem(item),
       onReject: () => _decide(item, false),
       onOpenTask: () => _openTaskDetails(item),
@@ -861,7 +738,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                     children: [
                       AppTopBar(
                         title: 'Заявки и оплаты',
-                        subtitle: 'Отклики исполнителей и запросы оплаты',
+                        subtitle: 'Отклики, приглашения и запросы оплаты',
                         onMenu: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
@@ -888,6 +765,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
                                     avatarUrl: _photo,
                                     totalCount: _items.length,
                                     applicationsCount: _applicationsCount,
+                                    invitesCount: _invitesCount,
                                     paymentsCount: _paymentsCount,
                                     pendingCount: _pendingCount,
                                   ),
@@ -967,6 +845,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
   final String? avatarUrl;
   final int totalCount;
   final int applicationsCount;
+  final int invitesCount;
   final int paymentsCount;
   final int pendingCount;
 
@@ -975,6 +854,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
     required this.avatarUrl,
     required this.totalCount,
     required this.applicationsCount,
+    required this.invitesCount,
     required this.paymentsCount,
     required this.pendingCount,
   });
@@ -1013,7 +893,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Здесь принимаются исполнители и обрабатываются запросы оплаты по задачам.',
+            'Здесь обрабатываются отклики исполнителей, отправленные приглашения и запросы оплаты по задачам.',
             style: AppTextStyles.body,
           ),
           const SizedBox(height: 14),
@@ -1047,6 +927,14 @@ class _ApplicationsOverviewCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
+              Expanded(
+                child: _StatCard(
+                  title: 'Приглашения',
+                  value: invitesCount.toString(),
+                  icon: CupertinoIcons.paperplane,
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: _StatCard(
                   title: 'Оплаты',
@@ -1115,10 +1003,10 @@ class _RequestsTwoColumnLayout extends StatelessWidget {
         final wide = constraints.maxWidth >= 760;
 
         final left = _RequestsColumn(
-          title: 'Заявки на выполнение',
+          title: 'Заявки и приглашения',
           icon: Icons.assignment_ind_outlined,
           emptyTitle: 'Заявок нет',
-          emptySubtitle: 'Заявки исполнителей появятся здесь.',
+          emptySubtitle: 'Отклики и приглашения исполнителям появятся здесь.',
           items: applications,
           cardBuilder: applicationCardBuilder,
         );
@@ -1204,6 +1092,7 @@ class _RequestCard extends StatelessWidget {
   final String amountText;
   final String dateText;
   final String positiveButtonText;
+  final String rejectButtonText;
   final VoidCallback onAccept;
   final VoidCallback onReject;
   final VoidCallback onOpenTask;
@@ -1220,6 +1109,7 @@ class _RequestCard extends StatelessWidget {
     required this.amountText,
     required this.dateText,
     required this.positiveButtonText,
+    required this.rejectButtonText,
     required this.onAccept,
     required this.onReject,
     required this.onOpenTask,
@@ -1230,6 +1120,8 @@ class _RequestCard extends StatelessWidget {
   bool get _pending => item.status == 'pending';
   bool get _approved => item.status == 'approved';
   bool get _hasTask => item.taskId != null && item.taskId!.isNotEmpty;
+  bool get _isCustomerInvite =>
+      item.type == _ReqType.application && item.source == 'customer_invite';
   bool get _canLeaveFeedback =>
       item.type == _ReqType.payment && _approved && _hasTask;
 
@@ -1247,6 +1139,7 @@ class _RequestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final complexity = _visibleComplexity;
+    final message = item.message.trim();
 
     return AppSurfaceCard(
       onTap: _hasTask ? onOpenTask : null,
@@ -1300,6 +1193,19 @@ class _RequestCard extends StatelessWidget {
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
           ),
+          if (message.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceSoft,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(message, style: AppTextStyles.body),
+            ),
+          ],
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -1332,36 +1238,55 @@ class _RequestCard extends StatelessWidget {
             const SizedBox(height: 14),
             Container(height: 1, color: AppColors.divider),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: busy ? null : onAccept,
-                    icon:
-                        itemBusy
-                            ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : Icon(
-                              item.type == _ReqType.payment
-                                  ? Icons.account_balance_rounded
-                                  : CupertinoIcons.checkmark_alt_circle,
-                            ),
-                    label: Text(positiveButtonText),
-                  ),
+            if (_isCustomerInvite)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: busy ? null : onReject,
+                  icon:
+                      itemBusy
+                          ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(CupertinoIcons.xmark_circle),
+                  label: Text(rejectButtonText),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : onReject,
-                    icon: const Icon(CupertinoIcons.xmark_circle),
-                    label: const Text('Отклонить'),
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: busy ? null : onAccept,
+                      icon:
+                          itemBusy
+                              ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                              : Icon(
+                                item.type == _ReqType.payment
+                                    ? Icons.account_balance_rounded
+                                    : CupertinoIcons.checkmark_alt_circle,
+                              ),
+                      label: Text(positiveButtonText),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: busy ? null : onReject,
+                      icon: const Icon(CupertinoIcons.xmark_circle),
+                      label: Text(rejectButtonText),
+                    ),
+                  ),
+                ],
+              ),
           ],
           if (!_pending && _hasTask) ...[
             const SizedBox(height: 14),

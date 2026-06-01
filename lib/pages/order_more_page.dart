@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:flutter_freelance_platform/services/application_decision_service.dart';
 import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
@@ -50,6 +51,8 @@ class _OrderMorePageState extends State<OrderMorePage> {
   String? _taskId;
   bool _hasApplied = false;
   String? _applicationStatus;
+  String? _applicationSource;
+  String? _applicationMessage;
 
   String? _role;
   String? _name;
@@ -70,22 +73,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
   }
 
   String? _relationId(dynamic value) {
-    if (value == null) return null;
-
-    if (value is String) {
-      final trimmed = value.trim();
-      return trimmed.isEmpty ? null : trimmed;
-    }
-
-    if (value is List && value.isNotEmpty) {
-      final first = value.first;
-      if (first is String) {
-        final trimmed = first.trim();
-        return trimmed.isEmpty ? null : trimmed;
-      }
-    }
-
-    return null;
+    return ApplicationDecisionService.relationId(value);
   }
 
   String? _firstFileName(dynamic value) {
@@ -175,21 +163,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
     String collection,
     String? id,
   ) async {
-    if (id == null || id.isEmpty) return null;
-
-    try {
-      final record = await PocketBaseService.instance.pb
-          .collection(collection)
-          .getOne(id);
-
-      return {
-        'id': record.id,
-        'created': record.get<String>('created') ?? '',
-        ...record.data,
-      };
-    } catch (_) {
-      return null;
-    }
+    return ApplicationDecisionService.getRecordData(collection, id);
   }
 
   Future<void> _loadAll() async {
@@ -340,32 +314,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
   }
 
   Future<void> _loadTask() async {
-    final pb = PocketBaseService.instance.pb;
-
-    _taskId = null;
-
-    final tasksResult = await pb
-        .collection('tasks')
-        .getList(page: 1, perPage: 200);
-
-    final tasks =
-        tasksResult.items.where((record) {
-          final orderId = _relationId(record.data['order_id']);
-          return orderId == widget.orderId;
-        }).toList();
-
-    tasks.sort((a, b) {
-      final da = DateTime.tryParse(a.get<String>('created') ?? '');
-      final db = DateTime.tryParse(b.get<String>('created') ?? '');
-
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-
-      return db.compareTo(da);
-    });
-
-    _taskId = tasks.isEmpty ? null : tasks.first.id;
+    _taskId = await ApplicationDecisionService.taskIdForOrder(widget.orderId);
   }
 
   Future<void> _loadApplicationState() async {
@@ -373,35 +322,39 @@ class _OrderMorePageState extends State<OrderMorePage> {
 
     _hasApplied = false;
     _applicationStatus = null;
+    _applicationSource = null;
+    _applicationMessage = null;
 
     if (userId == null) return;
 
-    final result = await PocketBaseService.instance.pb
-        .collection('applications')
-        .getList(page: 1, perPage: 200);
+    final application =
+        await ApplicationDecisionService.existingApplicationData(
+          orderId: widget.orderId,
+          executorId: userId,
+        );
 
-    for (final app in result.items) {
-      final orderId = _relationId(app.data['order_id']);
-      final executorId = _relationId(app.data['executor_id']);
-      final status = app.data['status']?.toString().trim().toLowerCase();
+    if (application == null) return;
 
-      if (orderId == widget.orderId && executorId == userId) {
-        _applicationStatus = status ?? 'pending';
+    final status = ApplicationDecisionService.normalizedStatus(
+      application['status'],
+    );
 
-        if (status != 'rejected') {
-          _hasApplied = true;
+    _applicationStatus = status;
+    _applicationSource = ApplicationDecisionService.normalizedApplicationSource(
+      application['source'],
+    );
+    _applicationMessage = application['message'] as String? ?? '';
 
-          final proposed = (app.data['complexity_proposed'] as num?)?.toInt();
-          if (proposed != null) {
-            _complexityProposed = proposed.clamp(1, 5).toInt();
-          }
+    if (status != 'rejected') {
+      _hasApplied = true;
 
-          _complexityReasonCtrl.text =
-              app.data['complexity_reason'] as String? ?? '';
-        }
-
-        return;
+      final proposed = (application['complexity_proposed'] as num?)?.toInt();
+      if (proposed != null) {
+        _complexityProposed = proposed.clamp(1, 5).toInt();
       }
+
+      _complexityReasonCtrl.text =
+          application['complexity_reason'] as String? ?? '';
     }
   }
 
@@ -440,22 +393,12 @@ class _OrderMorePageState extends State<OrderMorePage> {
         proposedComplexity: _complexityProposed ?? autoComplexity,
       );
 
-      if (proposedComplexity != autoComplexity &&
-          _complexityReasonCtrl.text.trim().isEmpty) {
-        throw 'Укажите причину изменения сложности';
-      }
-
-      await service.pb
-          .collection('applications')
-          .create(
-            body: {
-              'order_id': widget.orderId,
-              'executor_id': userId,
-              'status': 'pending',
-              'complexity_proposed': proposedComplexity,
-              'complexity_reason': _complexityReasonCtrl.text.trim(),
-            },
-          );
+      await ApplicationDecisionService.createExecutorApplication(
+        orderId: widget.orderId,
+        executorId: userId,
+        proposedComplexity: proposedComplexity,
+        complexityReason: _complexityReasonCtrl.text.trim(),
+      );
 
       await _loadApplicationState();
 
@@ -640,6 +583,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                 assigned: _executorId != null,
                                 hasApplied: _hasApplied,
                                 applicationStatus: _applicationStatus,
+                                applicationSource: _applicationSource,
                               ),
                               const SizedBox(height: 12),
                               _OrderComplexityCard(
@@ -687,6 +631,9 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                 canApply: _canApply,
                                 hasApplied: _hasApplied,
                                 assigned: _executorId != null,
+                                applicationSource: _applicationSource,
+                                applicationStatus: _applicationStatus,
+                                applicationMessage: _applicationMessage,
                                 canOpenChat: _canOpenChat,
                                 canOpenTask: _canOpenTask,
                                 onApply: _apply,
@@ -742,6 +689,7 @@ class _OrderMainCard extends StatelessWidget {
   final bool assigned;
   final bool hasApplied;
   final String? applicationStatus;
+  final String? applicationSource;
 
   const _OrderMainCard({
     required this.description,
@@ -752,10 +700,13 @@ class _OrderMainCard extends StatelessWidget {
     required this.assigned,
     required this.hasApplied,
     required this.applicationStatus,
+    required this.applicationSource,
   });
 
   @override
   Widget build(BuildContext context) {
+    final source = applicationSource?.trim().toLowerCase();
+
     final status =
         assigned
             ? AppStatusPill.success('Исполнитель назначен')
@@ -765,6 +716,8 @@ class _OrderMainCard extends StatelessWidget {
                   ? 'Заявка принята'
                   : applicationStatus == 'rejected'
                   ? 'Заявка отклонена'
+                  : source == 'customer_invite'
+                  ? 'Вас пригласили'
                   : 'Заявка отправлена',
             )
             : const AppStatusPill(
@@ -1236,6 +1189,9 @@ class _OrderActionsCard extends StatelessWidget {
   final bool canApply;
   final bool hasApplied;
   final bool assigned;
+  final String? applicationSource;
+  final String? applicationStatus;
+  final String? applicationMessage;
   final bool canOpenChat;
   final bool canOpenTask;
   final VoidCallback onApply;
@@ -1247,6 +1203,9 @@ class _OrderActionsCard extends StatelessWidget {
     required this.canApply,
     required this.hasApplied,
     required this.assigned,
+    required this.applicationSource,
+    required this.applicationStatus,
+    required this.applicationMessage,
     required this.canOpenChat,
     required this.canOpenTask,
     required this.onApply,
@@ -1254,8 +1213,24 @@ class _OrderActionsCard extends StatelessWidget {
     required this.onOpenTask,
   });
 
+  bool get _isCustomerInvite {
+    return applicationSource == 'customer_invite';
+  }
+
+  String get _appliedText {
+    if (_isCustomerInvite) {
+      if (applicationStatus == 'approved') return 'Приглашение принято';
+      if (applicationStatus == 'rejected') return 'Приглашение отклонено';
+      return 'Есть приглашение от заказчика';
+    }
+
+    return 'Заявка уже отправлена';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final message = applicationMessage?.trim() ?? '';
+
     return AppSurfaceCard(
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -1276,9 +1251,22 @@ class _OrderActionsCard extends StatelessWidget {
                       : const Icon(Icons.send_rounded),
               label: Text(applying ? 'Отправляем заявку...' : 'Подать заявку'),
             )
-          else if (hasApplied)
-            AppStatusPill.pending('Заявка уже отправлена')
-          else if (assigned)
+          else if (hasApplied) ...[
+            AppStatusPill.pending(_appliedText),
+            if (message.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceSoft,
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(message, style: AppTextStyles.body),
+              ),
+            ],
+          ] else if (assigned)
             AppStatusPill.success('Заказ назначен исполнителю')
           else
             const AppStatusPill(

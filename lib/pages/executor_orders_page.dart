@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/application_decision_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_file_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
@@ -96,22 +97,7 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
   }
 
   String? _relationId(dynamic value) {
-    if (value == null) return null;
-
-    if (value is String) {
-      final trimmed = value.trim();
-      return trimmed.isEmpty ? null : trimmed;
-    }
-
-    if (value is List && value.isNotEmpty) {
-      final first = value.first;
-      if (first is String) {
-        final trimmed = first.trim();
-        return trimmed.isEmpty ? null : trimmed;
-      }
-    }
-
-    return null;
+    return ApplicationDecisionService.relationId(value);
   }
 
   String _roleFallbackByEmail(String email) {
@@ -155,24 +141,10 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
     String collection,
     String? id,
   ) async {
-    if (id == null || id.isEmpty) return null;
-
-    try {
-      final record = await PocketBaseService.instance.pb
-          .collection(collection)
-          .getOne(id);
-
-      return {
-        'id': record.id,
-        'created': record.get<String>('created') ?? '',
-        ...record.data,
-      };
-    } catch (_) {
-      return null;
-    }
+    return ApplicationDecisionService.getRecordData(collection, id);
   }
 
-  Future<Set<String>> _appliedOrderIdsForExecutor(String executorId) async {
+  Future<Set<String>> _blockedOrderIdsForExecutor(String executorId) async {
     final result = await PocketBaseService.instance.pb
         .collection('applications')
         .getList(page: 1, perPage: 200);
@@ -182,8 +154,13 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
     for (final app in result.items) {
       final appExecutorId = _relationId(app.data['executor_id']);
       final orderId = _relationId(app.data['order_id']);
+      final status = ApplicationDecisionService.normalizedStatus(
+        app.data['status'],
+      );
 
-      if (appExecutorId == executorId && orderId != null) {
+      if (appExecutorId != executorId || orderId == null) continue;
+
+      if (status == 'pending' || status == 'approved') {
         ids.add(orderId);
       }
     }
@@ -222,7 +199,7 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
         fileValue: user.data['photo'],
       );
 
-      final alreadyAppliedOrderIds = await _appliedOrderIdsForExecutor(userId);
+      final blockedOrderIds = await _blockedOrderIdsForExecutor(userId);
 
       final orderResult = await pb
           .collection('orders')
@@ -237,9 +214,9 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
         final executorId = _relationId(record.data['executor_id']);
         final customerId = _relationId(record.data['customer_id']);
 
-        if (executorId != null) continue;
+        if (executorId != null && executorId.isNotEmpty) continue;
         if (customerId == userId) continue;
-        if (alreadyAppliedOrderIds.contains(orderId)) continue;
+        if (blockedOrderIds.contains(orderId)) continue;
 
         final frameworkId = _relationId(record.data['framework_id']);
         final languageId = _relationId(record.data['language_id']);
@@ -332,6 +309,10 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
     });
   }
 
+  DateTime? _parseDateTime(String? raw) {
+    return DateTime.tryParse(raw ?? '');
+  }
+
   DateTime? _parseDate(String? raw) {
     return DateTime.tryParse(raw ?? '');
   }
@@ -410,7 +391,17 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
 
     switch (_sort) {
       case 'Oldest':
-        return list.reversed.toList();
+        list.sort((a, b) {
+          final da = _parseDateTime(a['created'] as String?);
+          final db = _parseDateTime(b['created'] as String?);
+
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+
+          return da.compareTo(db);
+        });
+        return list;
 
       case 'By deadline':
         list.sort((a, b) {
@@ -435,6 +426,16 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
 
       case 'Newest':
       default:
+        list.sort((a, b) {
+          final da = _parseDateTime(a['created'] as String?);
+          final db = _parseDateTime(b['created'] as String?);
+
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+
+          return db.compareTo(da);
+        });
         return list;
     }
   }
@@ -509,7 +510,7 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
                     children: [
                       AppTopBar(
                         title: 'Доступные заказы',
-                        subtitle: 'Лента задач для исполнителя',
+                        subtitle: 'Лента заказов для исполнителя',
                         onMenu: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
@@ -646,7 +647,7 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
                                     subtitle:
                                         hasActiveFilters
                                             ? 'Измени фильтры или поисковый запрос.'
-                                            : 'Свободные заказы без твоей заявки будут показаны здесь.',
+                                            : 'Свободные заказы без твоей заявки или приглашения будут показаны здесь.',
                                   ),
                                 )
                               else
@@ -752,7 +753,7 @@ class _ExecutorOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Выбирай свободные заказы и откликайся на подходящие задачи.',
+            'Выбирай свободные заказы и откликайся на подходящие задачи. Заказы, куда уже отправлен отклик или получено приглашение, скрываются из этой ленты.',
             style: AppTextStyles.body,
           ),
           const SizedBox(height: 14),

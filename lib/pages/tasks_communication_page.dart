@@ -383,11 +383,23 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
     await _sendMessage();
   }
 
-  Future<void> _pickAndSendFile() async {
+  Future<void> _pickAndSendImage() async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: false,
       withData: true,
       type: FileType.image,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    await _sendMessage(file: result.files.first);
+  }
+
+  Future<void> _pickAndSendFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      withData: true,
+      type: FileType.any,
     );
 
     if (result == null || result.files.isEmpty) return;
@@ -587,7 +599,7 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
                                   icon: CupertinoIcons.chat_bubble_2,
                                   title: 'Сообщений пока нет',
                                   subtitle:
-                                      'Напиши первое сообщение или прикрепи изображение.',
+                                      'Напиши первое сообщение или прикрепи файл.',
                                 )
                                 : ListView.builder(
                                   controller: _scrollController,
@@ -638,7 +650,8 @@ class _TasksCommunicationPageState extends State<TasksCommunicationPage> {
                         controller: _controller,
                         sending: _sending,
                         onSend: _sendTextMessage,
-                        onAttach: _pickAndSendFile,
+                        onAttachImage: _pickAndSendImage,
+                        onAttachFile: _pickAndSendFile,
                       ),
                     ],
                   ),
@@ -984,13 +997,15 @@ class _ChatInputBar extends StatelessWidget {
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
-  final VoidCallback onAttach;
+  final VoidCallback onAttachImage;
+  final VoidCallback onAttachFile;
 
   const _ChatInputBar({
     required this.controller,
     required this.sending,
     required this.onSend,
-    required this.onAttach,
+    required this.onAttachImage,
+    required this.onAttachFile,
   });
 
   @override
@@ -1008,7 +1023,14 @@ class _ChatInputBar extends StatelessWidget {
           children: [
             AppIconSurfaceButton(
               icon: CupertinoIcons.photo,
-              onTap: sending ? () {} : onAttach,
+              onTap: sending ? () {} : onAttachImage,
+              size: 42,
+              iconColor: AppColors.textSecondary,
+            ),
+            const SizedBox(width: 6),
+            AppIconSurfaceButton(
+              icon: Icons.attach_file_rounded,
+              onTap: sending ? () {} : onAttachFile,
               size: 42,
               iconColor: AppColors.textSecondary,
             ),

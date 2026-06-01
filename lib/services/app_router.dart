@@ -7,18 +7,20 @@ import '../pages/account_page.dart';
 import '../pages/customer_applications_page.dart';
 import '../pages/customer_create_order_page.dart';
 import '../pages/customer_dashboard_page.dart';
+import '../pages/customer_executors_page.dart';
 import '../pages/customer_orders_page.dart';
 import '../pages/edit_profile_page.dart';
-import '../pages/feedback_create_page.dart';
+import '../pages/executor_invitations_page.dart';
 import '../pages/executor_orders_page.dart';
+import '../pages/feedback_create_page.dart';
 import '../pages/log_in_page.dart';
 import '../pages/log_up_page.dart';
 import '../pages/mock_payment_page.dart';
 import '../pages/order_more_page.dart';
+import '../pages/support_communication_page.dart' as support_chat;
 import '../pages/support_create_page.dart';
 import '../pages/support_orders_page.dart';
 import '../pages/support_page.dart';
-import '../pages/support_communication_page.dart' as support_chat;
 import '../pages/task_details_page.dart';
 import '../pages/tasks_communication_page.dart' as task_chat;
 import '../pages/tasks_page.dart';
@@ -70,6 +72,10 @@ class AppRouter {
             path: 'applications',
             builder: (context, state) => const CustomerApplicationsPage(),
           ),
+          GoRoute(
+            path: 'executors',
+            builder: (context, state) => const CustomerExecutorsPage(),
+          ),
         ],
       ),
 
@@ -90,6 +96,12 @@ class AppRouter {
       GoRoute(
         path: '/executor',
         builder: (context, state) => const ExecutorOrdersPage(),
+        routes: [
+          GoRoute(
+            path: 'invitations',
+            builder: (context, state) => const ExecutorInvitationsPage(),
+          ),
+        ],
       ),
 
       GoRoute(

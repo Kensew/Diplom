@@ -40,6 +40,14 @@ class AppDrawer extends StatelessWidget {
     }
   }
 
+  bool _isSelected(String currentRoute, String route) {
+    if (route == '/customer' || route == '/executor' || route == '/support') {
+      return currentRoute == route;
+    }
+
+    return currentRoute == route || currentRoute.startsWith('$route/');
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentRoute = GoRouterState.of(context).uri.toString();
@@ -79,25 +87,37 @@ class AppDrawer extends StatelessWidget {
                         icon: Icons.dashboard_outlined,
                         label: 'Главная',
                         route: '/customer',
-                        selected: currentRoute == '/customer',
+                        selected: _isSelected(currentRoute, '/customer'),
                       ),
                       _DrawerItem(
                         icon: Icons.receipt_long_outlined,
                         label: 'Мои заказы',
                         route: '/orders',
-                        selected: currentRoute == '/orders',
+                        selected: _isSelected(currentRoute, '/orders'),
                       ),
                       _DrawerItem(
                         icon: Icons.add_circle_outline_rounded,
                         label: 'Создать заказ',
                         route: '/customer/create',
-                        selected: currentRoute == '/customer/create',
+                        selected: _isSelected(currentRoute, '/customer/create'),
+                      ),
+                      _DrawerItem(
+                        icon: Icons.person_search_rounded,
+                        label: 'Исполнители',
+                        route: '/customer/executors',
+                        selected: _isSelected(
+                          currentRoute,
+                          '/customer/executors',
+                        ),
                       ),
                       _DrawerItem(
                         icon: Icons.mail_outline_rounded,
                         label: 'Заявки и оплаты',
                         route: '/customer/applications',
-                        selected: currentRoute == '/customer/applications',
+                        selected: _isSelected(
+                          currentRoute,
+                          '/customer/applications',
+                        ),
                       ),
                     ],
 
@@ -107,13 +127,22 @@ class AppDrawer extends StatelessWidget {
                         icon: Icons.work_outline_rounded,
                         label: 'Доступные заказы',
                         route: '/executor',
-                        selected: currentRoute == '/executor',
+                        selected: _isSelected(currentRoute, '/executor'),
+                      ),
+                      _DrawerItem(
+                        icon: CupertinoIcons.mail,
+                        label: 'Приглашения',
+                        route: '/executor/invitations',
+                        selected: _isSelected(
+                          currentRoute,
+                          '/executor/invitations',
+                        ),
                       ),
                       _DrawerItem(
                         icon: Icons.task_alt_rounded,
                         label: 'Мои задачи',
                         route: '/tasks',
-                        selected: currentRoute == '/tasks',
+                        selected: _isSelected(currentRoute, '/tasks'),
                       ),
                     ],
 
@@ -123,13 +152,13 @@ class AppDrawer extends StatelessWidget {
                         icon: Icons.view_list_outlined,
                         label: 'Все заказы',
                         route: '/support/orders',
-                        selected: currentRoute == '/support/orders',
+                        selected: _isSelected(currentRoute, '/support/orders'),
                       ),
                       _DrawerItem(
                         icon: Icons.support_agent_rounded,
                         label: 'Чаты поддержки',
                         route: '/support',
-                        selected: currentRoute == '/support',
+                        selected: _isSelected(currentRoute, '/support'),
                       ),
                     ] else ...[
                       const SizedBox(height: 8),
@@ -137,7 +166,7 @@ class AppDrawer extends StatelessWidget {
                         icon: Icons.support_agent_rounded,
                         label: 'Поддержка',
                         route: '/support',
-                        selected: currentRoute == '/support',
+                        selected: _isSelected(currentRoute, '/support'),
                       ),
                     ],
 
@@ -147,7 +176,7 @@ class AppDrawer extends StatelessWidget {
                       icon: CupertinoIcons.person_crop_circle,
                       label: 'Профиль',
                       route: '/account',
-                      selected: currentRoute == '/account',
+                      selected: _isSelected(currentRoute, '/account'),
                     ),
                   ],
                 ),
