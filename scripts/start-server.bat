@@ -2,7 +2,7 @@
 title PocketBase LAN Server
 
 for %%I in ("%~dp0..") do set "PROJECT_DIR=%%~fI"
-set "POCKETBASE_DIR=C:\Users\Admin\Desktop\pocketbase_0.38.2_windows_amd64"
+set "POCKETBASE_DIR=%PROJECT_DIR%\pocketbase"
 set "POCKETBASE_PORT=8090"
 
 call "%~dp0_get-lan-ip.bat"
@@ -13,6 +13,7 @@ if not exist "%POCKETBASE_DIR%\pocketbase.exe" (
   echo   %POCKETBASE_DIR%\pocketbase.exe
   echo.
   echo Edit POCKETBASE_DIR in scripts\start-server.bat
+  echo Or place pocketbase.exe in the pocketbase\ folder.
   pause
   exit /b 1
 )

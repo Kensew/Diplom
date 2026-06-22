@@ -1,0 +1,19 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+
+# IDE
+.idea/
+.vscode/
+
+# PocketBase runtime (exe downloaded separately)
+pocketbase/pocketbase.exe
+pocketbase/*.zip
+pocketbase/pb_data/.notify/
+pocketbase/pb_data/backups/
+pocketbase/pb_data/*.db-shm
+pocketbase/pb_data/*.db-wal
