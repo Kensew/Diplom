@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_file_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/prepayment_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
@@ -51,6 +52,13 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
   String? _paymentRequestId;
   String? _paymentRequestStatus;
+  String? _paymentRequestType;
+
+  bool _prepaymentRequired = false;
+  bool _prepaymentPaid = false;
+  bool _hasApprovedFinalPayment = false;
+  double _prepaymentPaidAmount = 0;
+  int _prepaymentPercent = PrepaymentService.defaultPercent;
 
   bool _canLeaveFeedback = false;
   bool _feedbackAlreadyLeft = false;
@@ -335,6 +343,11 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     _paymentAmount = ((task.data['payment_amount'] as num?) ?? 0).toDouble();
     _complexityFinal = (task.data['complexity_final'] as num?)?.toInt();
     _complexitySource = task.data['complexity_source'] as String?;
+    _prepaymentRequired = PrepaymentService.taskRequiresPrepayment(task.data);
+    _prepaymentPercent = PrepaymentService.resolvePercent({
+      'prepayment_percent':
+          task.data['prepayment_percent'] ?? order?['prepayment_percent'],
+    });
   }
 
   Future<void> _loadPaymentRequest() async {
@@ -342,6 +355,10 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
     _paymentRequestId = null;
     _paymentRequestStatus = null;
+    _paymentRequestType = null;
+    _prepaymentPaidAmount = 0;
+    _prepaymentPaid = false;
+    _hasApprovedFinalPayment = false;
 
     final result = await pb
         .collection('payment_requests')
@@ -355,7 +372,39 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
     if (requests.isEmpty) return;
 
-    requests.sort((a, b) {
+    for (final request in requests) {
+      final type = PrepaymentService.normalizedPaymentType(
+        request.data['payment_type'],
+      );
+      final status =
+          request.data['status']?.toString().trim().toLowerCase() ?? '';
+      final amount = ((request.data['payment_amount'] as num?) ?? 0).toDouble();
+
+      if (type == 'prepayment' && status == 'approved') {
+        _prepaymentPaidAmount += amount;
+      }
+
+      if (type == 'final' && status == 'approved') {
+        _hasApprovedFinalPayment = true;
+      }
+    }
+
+    _prepaymentPaidAmount = double.parse(
+      _prepaymentPaidAmount.toStringAsFixed(2),
+    );
+    _prepaymentPaid = _prepaymentPaidAmount > 0;
+
+    final pendingRequests =
+        requests
+            .where(
+              (request) =>
+                  (request.data['status']?.toString().trim().toLowerCase() ??
+                      '') ==
+                  'pending',
+            )
+            .toList();
+
+    pendingRequests.sort((a, b) {
       final da = DateTime.tryParse(a.get<String>('created') ?? '');
       final db = DateTime.tryParse(b.get<String>('created') ?? '');
 
@@ -366,11 +415,15 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       return db.compareTo(da);
     });
 
-    final request = requests.first;
+    if (pendingRequests.isEmpty) return;
+
+    final request = pendingRequests.first;
 
     _paymentRequestId = request.id;
-    _paymentRequestStatus =
-        request.data['status']?.toString().trim().toLowerCase() ?? 'pending';
+    _paymentRequestStatus = 'pending';
+    _paymentRequestType = PrepaymentService.normalizedPaymentType(
+      request.data['payment_type'],
+    );
   }
 
   Future<void> _requestPayment() async {
@@ -397,13 +450,33 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         throw 'Запрос оплаты уже ожидает решения заказчика';
       }
 
-      if (_paymentRequestStatus == 'approved') {
+      if (_isFullyPaid) {
         throw 'Оплата уже подтверждена';
+      }
+
+      if (_prepaymentRequired && !_prepaymentPaid) {
+        throw 'Сначала заказчик должен внести предоплату';
+      }
+
+      if (_prepaymentRequired && _hasApprovedFinalPayment) {
+        throw 'Финальная оплата уже подтверждена';
       }
 
       final pendingStatusId = await _firstIdFromCollection('payment_statuses', [
         'pending',
       ]);
+
+      final paymentAmount =
+          _prepaymentRequired && _prepaymentPaid
+              ? PrepaymentService.remainingAmount(
+                totalPrice: _paymentAmount,
+                prepaymentPaid: _prepaymentPaidAmount,
+              )
+              : _paymentAmount;
+
+      if (paymentAmount <= 0) {
+        throw 'Сумма финальной оплаты должна быть больше нуля';
+      }
 
       final request = await service.pb
           .collection('payment_requests')
@@ -412,7 +485,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               'task_id': widget.taskId,
               'requested_by': userId,
               'status': 'pending',
-              'payment_amount': _paymentAmount,
+              'payment_amount': paymentAmount,
+              'payment_type': 'final',
             },
           );
 
@@ -427,13 +501,20 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
       _paymentRequestId = request.id;
       _paymentRequestStatus = 'pending';
+      _paymentRequestType = 'final';
 
       await _loadAll(showLoader: false);
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Запрос оплаты отправлен заказчику')),
+        SnackBar(
+          content: Text(
+            _prepaymentRequired
+                ? 'Запрос финальной оплаты отправлен заказчику'
+                : 'Запрос оплаты отправлен заказчику',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -547,7 +628,15 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     context.push('/account/$id');
   }
 
-  bool get _isPaid {
+  bool get _isFullyPaid {
+    if (_prepaymentRequired) {
+      return _hasApprovedFinalPayment;
+    }
+
+    return _isLegacyPaid;
+  }
+
+  bool get _isLegacyPaid {
     final status = (_paymentStatus ?? '').trim().toLowerCase();
     final requestStatus = (_paymentRequestStatus ?? '').trim().toLowerCase();
 
@@ -556,8 +645,19 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         requestStatus == 'approved';
   }
 
+  bool get _isPaid => _isFullyPaid;
+
+  bool get _awaitingPrepayment {
+    return _prepaymentRequired && !_prepaymentPaid;
+  }
+
   bool get _hasPendingPaymentRequest {
     return _paymentRequestStatus == 'pending';
+  }
+
+  bool get _hasPendingPrepaymentRequest {
+    return _hasPendingPaymentRequest &&
+        _paymentRequestType == 'prepayment';
   }
 
   bool get _isExecutorOwner {
@@ -612,8 +712,18 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   AppStatusPill _paymentStatusPill() {
     final status = (_paymentStatus ?? '—').trim().toLowerCase();
 
-    if (_isPaid || status == 'paid' || status == 'approved') {
+    if (_isFullyPaid || status == 'paid' || status == 'approved') {
       return AppStatusPill.success('Оплата подтверждена');
+    }
+
+    if (_awaitingPrepayment ||
+        status == 'awaiting_prepayment' ||
+        _hasPendingPrepaymentRequest) {
+      return AppStatusPill.pending('Ожидает предоплаты');
+    }
+
+    if (_prepaymentPaid && !_isFullyPaid) {
+      return AppStatusPill.pending('Предоплата внесена');
     }
 
     if (_hasPendingPaymentRequest || status == 'pending') {
@@ -706,9 +816,13 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                               const SizedBox(height: 12),
                               _TaskActionsCard(
                                 requestingPayment: _requestingPayment,
-                                isPaid: _isPaid,
+                                isPaid: _isFullyPaid,
                                 hasPendingPaymentRequest:
                                     _hasPendingPaymentRequest,
+                                awaitingPrepayment: _awaitingPrepayment,
+                                prepaymentRequired: _prepaymentRequired,
+                                prepaymentPaid: _prepaymentPaid,
+                                paymentRequestType: _paymentRequestType,
                                 isExecutorOwner: _isExecutorOwner,
                                 isCustomerOwner: _isCustomerOwner,
                                 canLeaveFeedback: _canLeaveFeedback,
@@ -971,6 +1085,10 @@ class _TaskActionsCard extends StatelessWidget {
   final bool requestingPayment;
   final bool isPaid;
   final bool hasPendingPaymentRequest;
+  final bool awaitingPrepayment;
+  final bool prepaymentRequired;
+  final bool prepaymentPaid;
+  final String? paymentRequestType;
   final bool isExecutorOwner;
   final bool isCustomerOwner;
   final bool canLeaveFeedback;
@@ -986,6 +1104,10 @@ class _TaskActionsCard extends StatelessWidget {
     required this.requestingPayment,
     required this.isPaid,
     required this.hasPendingPaymentRequest,
+    required this.awaitingPrepayment,
+    required this.prepaymentRequired,
+    required this.prepaymentPaid,
+    required this.paymentRequestType,
     required this.isExecutorOwner,
     required this.isCustomerOwner,
     required this.canLeaveFeedback,
@@ -1040,7 +1162,23 @@ class _TaskActionsCard extends StatelessWidget {
             icon: const Icon(CupertinoIcons.chat_bubble_2),
             label: const Text('Открыть чат'),
           ),
-          if (isExecutorOwner && !isPaid) ...[
+          if (isExecutorOwner && awaitingPrepayment) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceSoft,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                'Работа начнётся после предоплаты от заказчика.',
+                style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+              ),
+            ),
+          ],
+          if (isExecutorOwner && !isPaid && !awaitingPrepayment) ...[
             const SizedBox(height: 10),
             ElevatedButton.icon(
               onPressed:
@@ -1058,6 +1196,8 @@ class _TaskActionsCard extends StatelessWidget {
               label: Text(
                 hasPendingPaymentRequest
                     ? 'Запрос оплаты ожидает заказчика'
+                    : prepaymentRequired && prepaymentPaid
+                    ? 'Запросить финальную оплату'
                     : 'Запросить оплату',
               ),
             ),
@@ -1067,7 +1207,11 @@ class _TaskActionsCard extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: onOpenPayment,
               icon: const Icon(Icons.account_balance_rounded),
-              label: const Text('Оплатить через банк'),
+              label: Text(
+                paymentRequestType == 'prepayment'
+                    ? 'Оплатить предоплату'
+                    : 'Оплатить через банк',
+              ),
             ),
           ],
           if (isPaid) ...[

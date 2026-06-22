@@ -42,7 +42,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
 
       final records = await service.pb
           .collection('orders')
-          .getFullList(filter: 'customer_id = "$userId"', sort: '-created');
+          .getFullList(filter: 'customer_id = "$userId"', sort: '-id');
 
       _orders =
           records.map((record) {

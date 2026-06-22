@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter_freelance_platform/services/customer_order_labels.dart';
+
 class OrderComplexityResult {
   final int complexity;
   final int points;
@@ -63,38 +65,58 @@ class OrderComplexityService {
     }
 
     if (requiresFiles) {
-      addFactor('files', 'Работа с файлами', 1);
+      addFactor(
+        'files',
+        CustomerOrderLabels.factorStoredLabel('files'),
+        1,
+      );
     }
 
     if (requiresAuth) {
-      addFactor('auth', 'Авторизация или роли', 1);
+      addFactor(
+        'auth',
+        CustomerOrderLabels.factorStoredLabel('auth'),
+        1,
+      );
     }
 
     if (requiresDatabase) {
-      addFactor('database', 'База данных', 1);
+      addFactor(
+        'database',
+        CustomerOrderLabels.factorStoredLabel('database'),
+        1,
+      );
     }
 
     if (requiresApi) {
-      addFactor('api', 'Интеграция/API', 1);
+      addFactor(
+        'api',
+        CustomerOrderLabels.factorStoredLabel('api'),
+        1,
+      );
     }
 
     if (requiresPayment) {
-      addFactor('payment', 'Оплата или платёжная логика', 1);
+      addFactor(
+        'payment',
+        CustomerOrderLabels.factorStoredLabel('payment'),
+        1,
+      );
     }
 
     if (screensOrFunctionsCount >= 3 && screensOrFunctionsCount <= 5) {
-      addFactor('screens_medium', 'Несколько экранов или функций', 1);
+      addFactor('screens_medium', 'Несколько страниц или разделов', 1);
     } else if (screensOrFunctionsCount > 5) {
-      addFactor('screens_large', 'Много экранов или функций', 2);
+      addFactor('screens_large', 'Много страниц или разделов', 2);
     }
 
     final normalizedDescription = description.trim();
 
     if (normalizedDescription.length >= 500 &&
         normalizedDescription.length < 1200) {
-      addFactor('description_medium', 'Подробное техническое описание', 1);
+      addFactor('description_medium', 'Подробное описание задачи', 1);
     } else if (normalizedDescription.length >= 1200) {
-      addFactor('description_large', 'Большой объём требований', 2);
+      addFactor('description_large', 'Большой объём пожеланий', 2);
     }
 
     final now = DateTime.now();

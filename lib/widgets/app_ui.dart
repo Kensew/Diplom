@@ -323,12 +323,24 @@ class AppSectionHeader extends StatelessWidget {
 class AppTag extends StatelessWidget {
   final IconData icon;
   final String label;
+  final bool expand;
 
-  const AppTag({required this.icon, required this.label, super.key});
+  const AppTag({
+    required this.icon,
+    required this.label,
+    this.expand = false,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final labelStyle = AppTextStyles.caption.copyWith(
+      color: AppColors.textSecondary,
+      fontWeight: FontWeight.w600,
+    );
+
     return Container(
+      width: expand ? double.infinity : null,
       padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
       decoration: BoxDecoration(
         color: AppColors.surfaceSoft,
@@ -336,17 +348,24 @@ class AppTag extends StatelessWidget {
         border: Border.all(color: AppColors.border),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: AppColors.accent),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: AppTextStyles.caption.copyWith(
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w600,
+          if (expand)
+            Expanded(
+              child: Text(
+                label,
+                style: labelStyle,
+                softWrap: true,
+              ),
+            )
+          else
+            Text(
+              label,
+              style: labelStyle,
             ),
-          ),
         ],
       ),
     );
@@ -439,17 +458,21 @@ class AppStatusPill extends StatelessWidget {
         border: Border.all(color: color.withOpacity(0.28)),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
             Icon(icon, size: 14, color: color),
             const SizedBox(width: 6),
           ],
-          Text(
-            text,
-            style: AppTextStyles.caption.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              text,
+              style: AppTextStyles.caption.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+              softWrap: true,
             ),
           ),
         ],
@@ -570,11 +593,13 @@ class AppErrorState extends StatelessWidget {
 
 class AppBottomSheetOption extends StatelessWidget {
   final String title;
+  final String? subtitle;
   final bool selected;
   final VoidCallback onTap;
 
   const AppBottomSheetOption({
     required this.title,
+    this.subtitle,
     required this.selected,
     required this.onTap,
     super.key,
@@ -588,12 +613,22 @@ class AppBottomSheetOption extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              title,
-              style: AppTextStyles.body.copyWith(
-                color: selected ? AppColors.accent : AppColors.text,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.body.copyWith(
+                    color: selected ? AppColors.accent : AppColors.text,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                  softWrap: true,
+                ),
+                if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(subtitle!, style: AppTextStyles.caption, softWrap: true),
+                ],
+              ],
             ),
           ),
           if (selected)

@@ -757,7 +757,7 @@ class _TasksOverviewCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'tasks',
+                text: 'Задачи',
                 color: AppColors.accent,
                 icon: CupertinoIcons.checkmark_seal,
               ),

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/prepayment_service.dart';
 import 'package:flutter_freelance_platform/widgets/cloudpayments_embed.dart';
 
 class MockPaymentPage extends StatefulWidget {
@@ -27,6 +28,7 @@ class _MockPaymentPageState extends State<MockPaymentPage> {
   String? _orderId;
   String? _title;
   String? _paymentStatus;
+  String? _paymentType;
   double _amount = 0;
 
   @override
@@ -149,6 +151,9 @@ class _MockPaymentPageState extends State<MockPaymentPage> {
       _orderId = orderId;
       _title = order['task_description'] as String? ?? 'Оплата заказа';
       _paymentStatus = status;
+      _paymentType = PrepaymentService.normalizedPaymentType(
+        payment.data['payment_type'],
+      );
       _amount = rawAmount.toDouble();
     } catch (e) {
       _error = 'Ошибка загрузки оплаты: $e';
@@ -174,11 +179,12 @@ class _MockPaymentPageState extends State<MockPaymentPage> {
     try {
       final service = PocketBaseService.instance;
 
-      final paidStatusId = await _firstIdFromCollection('payment_statuses', [
-        'paid',
-        'approved',
-        'done',
-      ]);
+      final paidStatusId = await _firstIdFromCollection(
+        'payment_statuses',
+        _paymentType == 'prepayment'
+            ? ['prepayment_paid', 'pending', 'paid']
+            : ['paid', 'approved', 'done'],
+      );
 
       await service.pb
           .collection('payment_requests')
@@ -199,7 +205,9 @@ class _MockPaymentPageState extends State<MockPaymentPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Оплата подтверждена: ${_amountForWidget.toStringAsFixed(2)} ₽',
+            _paymentType == 'prepayment'
+                ? 'Предоплата подтверждена: ${_amountForWidget.toStringAsFixed(2)} ₽'
+                : 'Оплата подтверждена: ${_amountForWidget.toStringAsFixed(2)} ₽',
           ),
         ),
       );
@@ -261,7 +269,9 @@ class _MockPaymentPageState extends State<MockPaymentPage> {
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        title: const Text('Оплата заказа'),
+        title: Text(
+          _paymentType == 'prepayment' ? 'Предоплата заказа' : 'Оплата заказа',
+        ),
         backgroundColor: cs.surface,
         elevation: 0,
       ),
@@ -299,6 +309,11 @@ class _MockPaymentPageState extends State<MockPaymentPage> {
                             ),
                           ),
                           const SizedBox(height: 8),
+                          Text(
+                            PrepaymentService.paymentTypeLabel(
+                              _paymentType ?? 'final',
+                            ),
+                          ),
                           Text('Запрос: ${_paymentStatus ?? 'pending'}'),
                           if (_orderId != null) Text('Заказ: $_orderId'),
                           const SizedBox(height: 12),

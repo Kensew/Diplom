@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_freelance_platform/services/application_decision_service.dart';
 import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/prepayment_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
@@ -25,9 +26,11 @@ class OrderMorePage extends StatefulWidget {
 class _OrderMorePageState extends State<OrderMorePage> {
   final _dateFmt = DateFormat('dd.MM.yyyy');
   final _complexityReasonCtrl = TextEditingController();
+  final _prepaymentNoteCtrl = TextEditingController();
 
   bool _loading = true;
   bool _applying = false;
+  bool _requiresPrepayment = false;
   String? _error;
 
   String? _description;
@@ -35,6 +38,9 @@ class _OrderMorePageState extends State<OrderMorePage> {
   String? _framework;
   String? _language;
   num? _price;
+
+  bool _orderPrepaymentAvailable = false;
+  int _orderPrepaymentPercent = PrepaymentService.defaultPercent;
 
   int? _complexityAuto;
   String? _complexityFactorsRaw;
@@ -69,6 +75,7 @@ class _OrderMorePageState extends State<OrderMorePage> {
   @override
   void dispose() {
     _complexityReasonCtrl.dispose();
+    _prepaymentNoteCtrl.dispose();
     super.dispose();
   }
 
@@ -212,6 +219,10 @@ class _OrderMorePageState extends State<OrderMorePage> {
 
     _description = order.data['task_description'] as String?;
     _price = order.data['price'] as num?;
+    _orderPrepaymentAvailable = PrepaymentService.orderOffersPrepayment(
+      order.data,
+    );
+    _orderPrepaymentPercent = PrepaymentService.resolvePercent(order.data);
 
     _complexityAuto = (order.data['complexity_auto'] as num?)?.toInt();
     _complexityFactorsRaw = order.data['complexity_factors']?.toString();
@@ -344,6 +355,11 @@ class _OrderMorePageState extends State<OrderMorePage> {
       application['source'],
     );
     _applicationMessage = application['message'] as String? ?? '';
+    _requiresPrepayment = PrepaymentService.applicationRequiresPrepayment(
+      application,
+    );
+    _prepaymentNoteCtrl.text =
+        application['prepayment_note'] as String? ?? '';
 
     if (status != 'rejected') {
       _hasApplied = true;
@@ -398,6 +414,8 @@ class _OrderMorePageState extends State<OrderMorePage> {
         executorId: userId,
         proposedComplexity: proposedComplexity,
         complexityReason: _complexityReasonCtrl.text.trim(),
+        requiresPrepayment: _requiresPrepayment,
+        prepaymentNote: _prepaymentNoteCtrl.text.trim(),
       );
 
       await _loadApplicationState();
@@ -584,6 +602,9 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                 hasApplied: _hasApplied,
                                 applicationStatus: _applicationStatus,
                                 applicationSource: _applicationSource,
+                                orderPrepaymentAvailable: _orderPrepaymentAvailable,
+                                orderPrepaymentPercent: _orderPrepaymentPercent,
+                                applicationRequiresPrepayment: _requiresPrepayment,
                               ),
                               const SizedBox(height: 12),
                               _OrderComplexityCard(
@@ -598,6 +619,18 @@ class _OrderMorePageState extends State<OrderMorePage> {
                                   });
                                 },
                               ),
+                              if (_canApply) ...[
+                                const SizedBox(height: 12),
+                                _PrepaymentApplicationCard(
+                                  requiresPrepayment: _requiresPrepayment,
+                                  noteCtrl: _prepaymentNoteCtrl,
+                                  orderPrepaymentAvailable: _orderPrepaymentAvailable,
+                                  orderPrepaymentPercent: _orderPrepaymentPercent,
+                                  onRequiresPrepaymentChanged: (value) {
+                                    setState(() => _requiresPrepayment = value);
+                                  },
+                                ),
+                              ],
                               const SizedBox(height: 12),
                               _CustomerCard(
                                 customerId: _customerId,
@@ -690,6 +723,9 @@ class _OrderMainCard extends StatelessWidget {
   final bool hasApplied;
   final String? applicationStatus;
   final String? applicationSource;
+  final bool orderPrepaymentAvailable;
+  final int orderPrepaymentPercent;
+  final bool applicationRequiresPrepayment;
 
   const _OrderMainCard({
     required this.description,
@@ -701,6 +737,9 @@ class _OrderMainCard extends StatelessWidget {
     required this.hasApplied,
     required this.applicationStatus,
     required this.applicationSource,
+    required this.orderPrepaymentAvailable,
+    required this.orderPrepaymentPercent,
+    required this.applicationRequiresPrepayment,
   });
 
   @override
@@ -745,6 +784,18 @@ class _OrderMainCard extends StatelessWidget {
               AppTag(icon: Icons.view_in_ar_outlined, label: framework),
               AppTag(icon: Icons.code_rounded, label: language),
               status,
+              if (orderPrepaymentAvailable)
+                AppTag(
+                  icon: Icons.payments_rounded,
+                  label: PrepaymentService.orderOfferBadgeLabel(
+                    orderPrepaymentPercent,
+                  ),
+                ),
+              if (applicationRequiresPrepayment && !orderPrepaymentAvailable)
+                const AppTag(
+                  icon: Icons.payments_rounded,
+                  label: 'Исполнитель: только по предоплате',
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -769,6 +820,75 @@ class _OrderMainCard extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrepaymentApplicationCard extends StatelessWidget {
+  final bool requiresPrepayment;
+  final TextEditingController noteCtrl;
+  final bool orderPrepaymentAvailable;
+  final int orderPrepaymentPercent;
+  final ValueChanged<bool> onRequiresPrepaymentChanged;
+
+  const _PrepaymentApplicationCard({
+    required this.requiresPrepayment,
+    required this.noteCtrl,
+    required this.orderPrepaymentAvailable,
+    required this.orderPrepaymentPercent,
+    required this.onRequiresPrepaymentChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Условие предоплаты'),
+          if (orderPrepaymentAvailable) ...[
+            const SizedBox(height: 10),
+            AppTag(
+              icon: Icons.payments_rounded,
+              label: PrepaymentService.orderOfferBadgeLabel(
+                orderPrepaymentPercent,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              'Работаю только по предоплате',
+              style: AppTextStyles.body.copyWith(color: AppColors.text),
+            ),
+            subtitle: Text(
+              orderPrepaymentAvailable
+                  ? 'Заказчик готов к предоплате — подтвердите своё условие'
+                  : 'Заказчик увидит это в вашей заявке',
+              style: AppTextStyles.caption,
+            ),
+            value: requiresPrepayment,
+            activeColor: AppColors.accent,
+            onChanged: onRequiresPrepaymentChanged,
+          ),
+          if (requiresPrepayment) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: noteCtrl,
+              maxLines: 2,
+              minLines: 2,
+              style: AppTextStyles.body.copyWith(color: AppColors.text),
+              decoration: const InputDecoration(
+                labelText: 'Комментарий к предоплате',
+                hintText: 'Например: начну работу после предоплаты 50%',
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
         ],
       ),
     );

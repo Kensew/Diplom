@@ -10,7 +10,9 @@ import 'package:intl/intl.dart';
 import 'package:flutter_freelance_platform/services/application_decision_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_file_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/prepayment_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
+import 'package:flutter_freelance_platform/utils/pocketbase_date.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
@@ -203,7 +205,7 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
 
       final orderResult = await pb
           .collection('orders')
-          .getList(page: 1, perPage: 200);
+          .getList(page: 1, perPage: 200, sort: '-id');
 
       final result = <Map<String, dynamic>>[];
       final frameworkSet = <String>{};
@@ -232,25 +234,18 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
 
         result.add({
           'id': orderId,
-          'created': record.get<String>('created') ?? '',
+          'created': record.created,
           'task_description': record.data['task_description'] as String? ?? '',
           'deadline': record.data['deadline'] as String?,
           'price': record.data['price'],
           'framework_name': frameworkName,
           'language_name': languageName,
+          'prepayment_required': PrepaymentService.orderOffersPrepayment(
+            record.data,
+          ),
+          'prepayment_percent': PrepaymentService.resolvePercent(record.data),
         });
       }
-
-      result.sort((a, b) {
-        final da = DateTime.tryParse(a['created'] as String? ?? '');
-        final db = DateTime.tryParse(b['created'] as String? ?? '');
-
-        if (da == null && db == null) return 0;
-        if (da == null) return 1;
-        if (db == null) return -1;
-
-        return db.compareTo(da);
-      });
 
       if (!mounted) return;
 
@@ -309,17 +304,18 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
     });
   }
 
-  DateTime? _parseDateTime(String? raw) {
-    return DateTime.tryParse(raw ?? '');
-  }
-
-  DateTime? _parseDate(String? raw) {
-    return DateTime.tryParse(raw ?? '');
-  }
+  DateTime? _parseDate(String? raw) => PocketBaseDate.parse(raw);
 
   String _formatDate(String? raw) {
     final dt = _parseDate(raw);
-    if (dt == null) return '—';
+    if (dt == null) return 'Не указан';
+
+    return _fmt.format(dt.toLocal());
+  }
+
+  String _formatCreated(String? raw) {
+    final dt = _parseDate(raw);
+    if (dt == null) return 'Не указан';
 
     return _fmt.format(dt.toLocal());
   }
@@ -392,14 +388,12 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
     switch (_sort) {
       case 'Oldest':
         list.sort((a, b) {
-          final da = _parseDateTime(a['created'] as String?);
-          final db = _parseDateTime(b['created'] as String?);
-
-          if (da == null && db == null) return 0;
-          if (da == null) return 1;
-          if (db == null) return -1;
-
-          return da.compareTo(db);
+          return PocketBaseDate.compareAscWithId(
+            createdA: a['created'] as String?,
+            createdB: b['created'] as String?,
+            idA: a['id'] as String?,
+            idB: b['id'] as String?,
+          );
         });
         return list;
 
@@ -427,14 +421,12 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
       case 'Newest':
       default:
         list.sort((a, b) {
-          final da = _parseDateTime(a['created'] as String?);
-          final db = _parseDateTime(b['created'] as String?);
-
-          if (da == null && db == null) return 0;
-          if (da == null) return 1;
-          if (db == null) return -1;
-
-          return db.compareTo(da);
+          return PocketBaseDate.compareDescWithId(
+            createdA: a['created'] as String?,
+            createdB: b['created'] as String?,
+            idA: a['id'] as String?,
+            idB: b['id'] as String?,
+          );
         });
         return list;
     }
@@ -683,10 +675,21 @@ class _ExecutorOrdersPageState extends State<ExecutorOrdersPage> {
                                               order['language_name']
                                                   as String? ??
                                               '—',
+                                          created: _formatCreated(
+                                            order['created'] as String?,
+                                          ),
                                           deadline: _formatDate(
                                             order['deadline'] as String?,
                                           ),
                                           price: _formatMoney(_priceOf(order)),
+                                          prepaymentAvailable:
+                                              order['prepayment_required']
+                                                  as bool? ??
+                                              false,
+                                          prepaymentPercent:
+                                              order['prepayment_percent']
+                                                  as int? ??
+                                              PrepaymentService.defaultPercent,
                                           onTap: () => _openOrder(id),
                                         );
                                       },
@@ -745,7 +748,7 @@ class _ExecutorOverviewCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'online',
+                text: 'В сети',
                 color: AppColors.accent,
                 icon: CupertinoIcons.circle_fill,
               ),
@@ -899,16 +902,22 @@ class _ExecutorOrderCard extends StatelessWidget {
   final String title;
   final String framework;
   final String language;
+  final String created;
   final String deadline;
   final String price;
+  final bool prepaymentAvailable;
+  final int prepaymentPercent;
   final VoidCallback onTap;
 
   const _ExecutorOrderCard({
     required this.title,
     required this.framework,
     required this.language,
+    required this.created,
     required this.deadline,
     required this.price,
+    required this.prepaymentAvailable,
+    required this.prepaymentPercent,
     required this.onTap,
   });
 
@@ -933,6 +942,13 @@ class _ExecutorOrderCard extends StatelessWidget {
             children: [
               AppTag(icon: Icons.view_in_ar_outlined, label: framework),
               AppTag(icon: Icons.code_rounded, label: language),
+              if (prepaymentAvailable)
+                AppTag(
+                  icon: Icons.payments_rounded,
+                  label: PrepaymentService.orderOfferBadgeLabel(
+                    prepaymentPercent,
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -942,9 +958,9 @@ class _ExecutorOrderCard extends StatelessWidget {
             children: [
               Expanded(
                 child: AppMetaItem(
-                  icon: Icons.currency_ruble_rounded,
-                  label: 'Бюджет',
-                  value: price,
+                  icon: CupertinoIcons.time,
+                  label: 'Создан',
+                  value: created,
                 ),
               ),
               const SizedBox(width: 12),
@@ -953,6 +969,18 @@ class _ExecutorOrderCard extends StatelessWidget {
                   icon: CupertinoIcons.calendar_today,
                   label: 'Дедлайн',
                   value: deadline,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: AppMetaItem(
+                  icon: Icons.currency_ruble_rounded,
+                  label: 'Бюджет',
+                  value: price,
                 ),
               ),
               const SizedBox(width: 8),

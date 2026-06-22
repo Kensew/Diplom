@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
+import 'package:flutter_freelance_platform/utils/pocketbase_date.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
@@ -222,9 +223,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     return result.items;
   }
 
-  DateTime? _parseDateTime(String? raw) {
-    return DateTime.tryParse(raw ?? '');
-  }
+  DateTime? _parseDateTime(String? raw) => PocketBaseDate.parse(raw);
 
   dynamic _latestTaskForOrder(List<dynamic> tasks, String orderId) {
     final related =
@@ -236,14 +235,12 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     if (related.isEmpty) return null;
 
     related.sort((a, b) {
-      final da = _parseDateTime(a.get<String>('created') ?? '');
-      final db = _parseDateTime(b.get<String>('created') ?? '');
-
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-
-      return db.compareTo(da);
+      return PocketBaseDate.compareDescWithId(
+        createdA: a.created,
+        createdB: b.created,
+        idA: a.id,
+        idB: b.id,
+      );
     });
 
     return related.first;
@@ -294,7 +291,7 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
       final ordersResult = await pb
           .collection('orders')
-          .getList(page: 1, perPage: 200);
+          .getList(page: 1, perPage: 200, sort: '-id');
 
       final tasks = await _getAllRecords('tasks');
       final taskStatuses = await _getAllRecords('task_statuses');
@@ -337,7 +334,10 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
 
         result.add({
           'id': record.id,
-          'created': record.get<String>('created') ?? '',
+          'created':
+              record.get<String>('order_created') ??
+              record.get<String>('created') ??
+              '',
           'updated': record.get<String>('updated') ?? '',
           'task_description': record.data['task_description'] as String? ?? '',
           'deadline': record.data['deadline'] as String?,
@@ -351,17 +351,6 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
           'payment_status': paymentStatusName,
         });
       }
-
-      result.sort((a, b) {
-        final da = _parseDateTime(a['created'] as String?);
-        final db = _parseDateTime(b['created'] as String?);
-
-        if (da == null && db == null) return 0;
-        if (da == null) return 1;
-        if (db == null) return -1;
-
-        return db.compareTo(da);
-      });
 
       if (!mounted) return;
 
@@ -520,13 +509,18 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     }
   }
 
-  DateTime? _parseDate(String? raw) {
-    return DateTime.tryParse(raw ?? '');
-  }
+  DateTime? _parseDate(String? raw) => PocketBaseDate.parse(raw);
 
   String _formatDate(String? raw) {
     final dt = _parseDate(raw);
-    if (dt == null) return '—';
+    if (dt == null) return 'Не указан';
+
+    return _fmt.format(dt.toLocal());
+  }
+
+  String _formatCreated(String? raw) {
+    final dt = _parseDate(raw);
+    if (dt == null) return 'Не указан';
 
     return _fmt.format(dt.toLocal());
   }
@@ -658,14 +652,12 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
     switch (_sort) {
       case 'Oldest':
         list.sort((a, b) {
-          final da = _parseDateTime(a['created'] as String?);
-          final db = _parseDateTime(b['created'] as String?);
-
-          if (da == null && db == null) return 0;
-          if (da == null) return 1;
-          if (db == null) return -1;
-
-          return da.compareTo(db);
+          return PocketBaseDate.compareAscWithId(
+            createdA: a['created'] as String?,
+            createdB: b['created'] as String?,
+            idA: a['id'] as String?,
+            idB: b['id'] as String?,
+          );
         });
         return list;
 
@@ -693,14 +685,12 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
       case 'Newest':
       default:
         list.sort((a, b) {
-          final da = _parseDateTime(a['created'] as String?);
-          final db = _parseDateTime(b['created'] as String?);
-
-          if (da == null && db == null) return 0;
-          if (da == null) return 1;
-          if (db == null) return -1;
-
-          return db.compareTo(da);
+          return PocketBaseDate.compareDescWithId(
+            createdA: a['created'] as String?,
+            createdB: b['created'] as String?,
+            idA: a['id'] as String?,
+            idB: b['id'] as String?,
+          );
         });
         return list;
     }
@@ -1013,6 +1003,9 @@ class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
                                               order['language_name']
                                                   as String? ??
                                               '—',
+                                          created: _formatCreated(
+                                            order['created'] as String?,
+                                          ),
                                           deadline: _formatDate(
                                             order['deadline'] as String?,
                                           ),
@@ -1093,7 +1086,7 @@ class _CustomerOrdersOverviewCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'orders',
+                text: 'Заказы',
                 color: AppColors.accent,
                 icon: CupertinoIcons.doc_text,
               ),
@@ -1279,6 +1272,7 @@ class _CustomerOrderCard extends StatelessWidget {
   final String title;
   final String framework;
   final String language;
+  final String created;
   final String deadline;
   final String price;
   final bool assigned;
@@ -1294,6 +1288,7 @@ class _CustomerOrderCard extends StatelessWidget {
     required this.title,
     required this.framework,
     required this.language,
+    required this.created,
     required this.deadline,
     required this.price,
     required this.assigned,
@@ -1393,9 +1388,9 @@ class _CustomerOrderCard extends StatelessWidget {
             children: [
               Expanded(
                 child: AppMetaItem(
-                  icon: Icons.currency_ruble_rounded,
-                  label: 'Бюджет',
-                  value: price,
+                  icon: CupertinoIcons.time,
+                  label: 'Создан',
+                  value: created,
                 ),
               ),
               const SizedBox(width: 12),
@@ -1404,6 +1399,18 @@ class _CustomerOrderCard extends StatelessWidget {
                   icon: CupertinoIcons.calendar_today,
                   label: 'Дедлайн',
                   value: deadline,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: AppMetaItem(
+                  icon: Icons.currency_ruble_rounded,
+                  label: 'Бюджет',
+                  value: price,
                 ),
               ),
               const SizedBox(width: 8),

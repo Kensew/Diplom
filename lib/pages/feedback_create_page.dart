@@ -505,7 +505,7 @@ class _ReviewTargetCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'review',
+                text: 'Отзыв',
                 color: AppColors.accent,
                 icon: CupertinoIcons.star_fill,
               ),

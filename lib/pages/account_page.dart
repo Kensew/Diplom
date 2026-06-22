@@ -9,8 +9,27 @@ import 'package:intl/intl.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_file_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
+import 'package:flutter_freelance_platform/utils/pocketbase_date.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
+
+class _RadarMetricDetail {
+  final String label;
+  final IconData icon;
+  final double score;
+  final String levelLabel;
+  final String meaning;
+  final String fact;
+
+  const _RadarMetricDetail({
+    required this.label,
+    required this.icon,
+    required this.score,
+    required this.levelLabel,
+    required this.meaning,
+    required this.fact,
+  });
+}
 
 class _ProfileRadarStats {
   final double orders;
@@ -19,6 +38,16 @@ class _ProfileRadarStats {
   final double complexity;
   final double price;
   final int paidTasksCount;
+  final int feedbackCount;
+  final double avgRating;
+  final double? avgEstimatedHours;
+  final double? avgSpentHours;
+  final double? avgComplexityRaw;
+  final double? avgPriceRub;
+  final int speedSampleCount;
+
+  static const _priceBenchmarkRub = 60000.0;
+  static const _maxPaidTasksSample = 20;
 
   const _ProfileRadarStats({
     required this.orders,
@@ -27,6 +56,13 @@ class _ProfileRadarStats {
     required this.complexity,
     required this.price,
     required this.paidTasksCount,
+    required this.feedbackCount,
+    required this.avgRating,
+    required this.avgEstimatedHours,
+    required this.avgSpentHours,
+    required this.avgComplexityRaw,
+    required this.avgPriceRub,
+    required this.speedSampleCount,
   });
 
   factory _ProfileRadarStats.empty() {
@@ -37,7 +73,110 @@ class _ProfileRadarStats {
       complexity: 0,
       price: 0,
       paidTasksCount: 0,
+      feedbackCount: 0,
+      avgRating: 0,
+      avgEstimatedHours: null,
+      avgSpentHours: null,
+      avgComplexityRaw: null,
+      avgPriceRub: null,
+      speedSampleCount: 0,
     );
+  }
+
+  static String _levelLabel(double score) {
+    if (score >= 80) return 'высокий';
+    if (score >= 50) return 'средний';
+    if (score > 0) return 'ниже среднего';
+    return 'нет данных';
+  }
+
+  static String _formatHours(double? value) {
+    if (value == null) return '—';
+    if (value % 1 == 0) return '${value.toInt()} ч';
+    return '${value.toStringAsFixed(1)} ч';
+  }
+
+  static String _formatRub(double? value) {
+    if (value == null) return '—';
+    final rounded = value.round();
+    final text = rounded.toString();
+    final buffer = StringBuffer();
+
+    for (var i = 0; i < text.length; i++) {
+      if (i > 0 && (text.length - i) % 3 == 0) {
+        buffer.write(' ');
+      }
+      buffer.write(text[i]);
+    }
+
+    return '${buffer.toString()} ₽';
+  }
+
+  List<_RadarMetricDetail> get metrics {
+    final speedFact =
+        speedSampleCount == 0
+            ? 'Нет задач с заполненным планом и фактом по часам'
+            : 'План: ${_formatHours(avgEstimatedHours)}, факт: ${_formatHours(avgSpentHours)} · задач с данными: $speedSampleCount';
+
+    return [
+      _RadarMetricDetail(
+        label: 'Заказы',
+        icon: Icons.task_alt_rounded,
+        score: orders,
+        levelLabel: _levelLabel(orders),
+        meaning:
+            '100 — 20 и более оплаченных задач из последних. Чем больше завершённых и оплаченных заказов, тем выше показатель.',
+        fact:
+            paidTasksCount == 0
+                ? 'Оплаченных задач в выборке пока нет'
+                : '$paidTasksCount из $_maxPaidTasksSample последних оплаченных задач',
+      ),
+      _RadarMetricDetail(
+        label: 'Качество',
+        icon: CupertinoIcons.star_fill,
+        score: quality,
+        levelLabel: _levelLabel(quality),
+        meaning:
+            '100 — средняя оценка 5 из 5 по входящим отзывам. Считается по всем отзывам на профиле.',
+        fact:
+            feedbackCount == 0
+                ? 'Отзывов пока нет'
+                : 'Средняя оценка ${avgRating.toStringAsFixed(1)} из 5 · отзывов: $feedbackCount',
+      ),
+      _RadarMetricDetail(
+        label: 'Скорость',
+        icon: CupertinoIcons.timer,
+        score: speed,
+        levelLabel: _levelLabel(speed),
+        meaning:
+            '100 — уложились в план или быстрее (факт ≤ план). Ниже 100 — тратили больше часов, чем планировали.',
+        fact: speedFact,
+      ),
+      _RadarMetricDetail(
+        label: 'Сложность',
+        icon: Icons.bar_chart_rounded,
+        score: complexity,
+        levelLabel: _levelLabel(complexity),
+        meaning:
+            '100 — средняя сложность задач 5/5. Показывает, насколько сложные проекты берёт исполнитель.',
+        fact:
+            avgComplexityRaw == null
+                ? 'Нет данных по сложности оплаченных задач'
+                : 'Средняя сложность ${avgComplexityRaw!.toStringAsFixed(1)} из 5',
+      ),
+      _RadarMetricDetail(
+        label: 'Цена',
+        icon: Icons.currency_ruble_rounded,
+        score: price,
+        levelLabel: _levelLabel(price),
+        meaning:
+            '100 — средний чек от ${_formatRub(_priceBenchmarkRub)} и выше. Показывает уровень стоимости оплаченных задач, а не «дорогой/дешёвый» относительно рынка.',
+        fact:
+            avgPriceRub == null
+                ? 'Нет данных по суммам оплаченных задач'
+                : 'Средний чек: ${_formatRub(avgPriceRub)}',
+      ),
+    ];
   }
 }
 
@@ -394,7 +533,7 @@ class _AccountPageState extends State<AccountPage> {
         'id': feedback.id,
         'estimate': feedback.data['estimate'],
         'text': feedback.data['text'] as String? ?? '',
-        'created': feedback.get<String>('created') ?? '',
+        'created': feedback.created,
         'reviewer_name': reviewerName,
         'reviewer_role': reviewerRole,
         'reviewer_avatar_url': reviewerAvatarUrl,
@@ -604,10 +743,15 @@ class _AccountPageState extends State<AccountPage> {
     }
 
     final qualityScore = _clampPercent((_avgRating / 5) * 100);
-    final ordersScore = _clampPercent((paidCount / 3) * 100);
+    final ordersScore = _clampPercent(
+      (paidCount / _ProfileRadarStats._maxPaidTasksSample) * 100,
+    );
 
     final speedScores = <double>[];
+    final estimatedHours = <double>[];
+    final spentHours = <double>[];
     final complexityScores = <double>[];
+    final complexityRawValues = <double>[];
     final priceValues = <double>[];
 
     for (final task in recentPaidTasks) {
@@ -618,10 +762,8 @@ class _AccountPageState extends State<AccountPage> {
 
       if (estimated != null && spent != null) {
         speedScores.add(_clampPercent((estimated / spent) * 100));
-      } else if (estimated != null && spent == null) {
-        speedScores.add(100);
-      } else {
-        speedScores.add(50);
+        estimatedHours.add(estimated);
+        spentHours.add(spent);
       }
 
       final taskComplexity = _positiveNumber(task['complexity_final']);
@@ -631,6 +773,7 @@ class _AccountPageState extends State<AccountPage> {
       final complexity =
           taskComplexity ?? orderComplexity ?? appComplexity ?? 3.0;
 
+      complexityRawValues.add(complexity);
       complexityScores.add(_clampPercent((complexity / 5) * 100));
 
       final taskPrice = _positiveNumber(task['payment_amount']);
@@ -642,22 +785,36 @@ class _AccountPageState extends State<AccountPage> {
       }
     }
 
-    final maxPrice = priceValues.isEmpty ? 0.0 : priceValues.reduce(math.max);
+    final avgPrice =
+        priceValues.isEmpty
+            ? null
+            : priceValues.reduce((a, b) => a + b) / priceValues.length;
 
-    final priceScores =
-        maxPrice <= 0
-            ? <double>[]
-            : priceValues
-                .map((price) => _clampPercent((price / maxPrice) * 100))
-                .toList();
+    final priceScore =
+        avgPrice == null
+            ? 0.0
+            : _clampPercent(
+              (avgPrice / _ProfileRadarStats._priceBenchmarkRub) * 100,
+            );
 
     _radarStats = _ProfileRadarStats(
       orders: ordersScore,
       quality: qualityScore,
       speed: _averageOrZero(speedScores),
       complexity: _averageOrZero(complexityScores),
-      price: _averageOrZero(priceScores),
+      price: priceScore,
       paidTasksCount: paidCount,
+      feedbackCount: _totalFeedbacks,
+      avgRating: _avgRating,
+      avgEstimatedHours:
+          estimatedHours.isEmpty ? null : _averageOrZero(estimatedHours),
+      avgSpentHours: spentHours.isEmpty ? null : _averageOrZero(spentHours),
+      avgComplexityRaw:
+          complexityRawValues.isEmpty
+              ? null
+              : _averageOrZero(complexityRawValues),
+      avgPriceRub: avgPrice,
+      speedSampleCount: speedScores.length,
     );
   }
 
@@ -773,9 +930,9 @@ class _AccountPageState extends State<AccountPage> {
     return '$age лет';
   }
 
-  String _formatDate(String? raw) {
-    final dt = DateTime.tryParse(raw ?? '');
-    if (dt == null) return '—';
+  String _formatDate(String? raw, {String emptyLabel = '—'}) {
+    final dt = PocketBaseDate.parse(raw);
+    if (dt == null) return emptyLabel;
 
     return _dateFmt.format(dt.toLocal());
   }
@@ -974,13 +1131,10 @@ class _AccountPageState extends State<AccountPage> {
                                       text: feedback['text'] as String? ?? '',
                                       date: _formatDate(
                                         feedback['created'] as String?,
+                                        emptyLabel: '',
                                       ),
                                       reviewerName:
                                           feedback['reviewer_name']
-                                              as String? ??
-                                          'Пользователь',
-                                      reviewerRole:
-                                          feedback['reviewer_role']
                                               as String? ??
                                           'Пользователь',
                                       reviewerAvatarUrl:
@@ -1312,61 +1466,164 @@ class _ExecutorWorkloadCard extends StatelessWidget {
   }
 }
 
-class _ProfileRadarCard extends StatelessWidget {
+class _ProfileRadarCard extends StatefulWidget {
   final _ProfileRadarStats stats;
 
   const _ProfileRadarCard({required this.stats});
 
   @override
+  State<_ProfileRadarCard> createState() => _ProfileRadarCardState();
+}
+
+class _ProfileRadarCardState extends State<_ProfileRadarCard> {
+  int? _hoveredIndex;
+
+  int? _hitTestAxis(Offset local, Size size) {
+    final center = Offset(size.width / 2, size.height / 2 + 8);
+    final dx = local.dx - center.dx;
+    final dy = local.dy - center.dy;
+    final distance = math.sqrt(dx * dx + dy * dy);
+    final radius = math.min(size.width, size.height) * 0.31;
+
+    if (distance > radius + 36) return null;
+
+    var angle = math.atan2(dy, dx) + math.pi / 2;
+    if (angle < 0) angle += 2 * math.pi;
+
+    const axisCount = 5;
+    const sector = 2 * math.pi / axisCount;
+    final index = ((angle + sector / 2) / sector).floor() % axisCount;
+
+    return index;
+  }
+
+  void _setHoveredIndex(int? index) {
+    if (index == _hoveredIndex) return;
+    setState(() => _hoveredIndex = index);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final stats = widget.stats;
+    final activeMetric =
+        _hoveredIndex == null ? null : stats.metrics[_hoveredIndex!];
+
     return AppSurfaceCard(
       padding: const EdgeInsets.all(14),
+      child: MouseRegion(
+        onExit: (_) => _setHoveredIndex(null),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppSectionHeader(
+              title: 'Профиль работы',
+              count: stats.paidTasksCount,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Оценка по последним оплаченным задачам и входящим отзывам. Наведите на сектор диаграммы или тег ниже.',
+              style: AppTextStyles.body,
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 240,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final size = Size(constraints.maxWidth, constraints.maxHeight);
+
+                  return MouseRegion(
+                    onHover:
+                        (event) => _setHoveredIndex(
+                          _hitTestAxis(event.localPosition, size),
+                        ),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTapDown: (details) {
+                        final index = _hitTestAxis(details.localPosition, size);
+                        _setHoveredIndex(
+                          _hoveredIndex == index ? null : index,
+                        );
+                      },
+                      child: CustomPaint(
+                        painter: _RadarChartPainter(
+                          stats: stats,
+                          hoveredIndex: _hoveredIndex,
+                        ),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (var i = 0; i < stats.metrics.length; i++)
+                  MouseRegion(
+                    onEnter: (_) => _setHoveredIndex(i),
+                    child: AppTag(
+                      icon: stats.metrics[i].icon,
+                      label:
+                          '${stats.metrics[i].label} ${stats.metrics[i].score.toStringAsFixed(0)}',
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (activeMetric != null)
+              _RadarMetricTooltip(detail: activeMetric),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RadarMetricTooltip extends StatelessWidget {
+  final _RadarMetricDetail detail;
+
+  const _RadarMetricTooltip({required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.accent.withOpacity(0.24)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          AppSectionHeader(
-            title: 'Профиль работы',
-            count: stats.paidTasksCount,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Оценка по последним оплаченным задачам и входящим отзывам.',
-            style: AppTextStyles.body,
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: 240,
-            child: CustomPaint(
-              painter: _RadarChartPainter(stats: stats),
-              child: const SizedBox.expand(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppTag(
-                icon: Icons.task_alt_rounded,
-                label: 'Заказы ${stats.orders.toStringAsFixed(0)}',
-              ),
-              AppTag(
-                icon: CupertinoIcons.star_fill,
-                label: 'Качество ${stats.quality.toStringAsFixed(0)}',
-              ),
-              AppTag(
-                icon: CupertinoIcons.timer,
-                label: 'Скорость ${stats.speed.toStringAsFixed(0)}',
-              ),
-              AppTag(
-                icon: Icons.bar_chart_rounded,
-                label: 'Сложность ${stats.complexity.toStringAsFixed(0)}',
-              ),
-              AppTag(
-                icon: Icons.currency_ruble_rounded,
-                label: 'Цена ${stats.price.toStringAsFixed(0)}',
+              Icon(detail.icon, size: 16, color: AppColors.accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${detail.label}: ${detail.score.toStringAsFixed(0)} · ${detail.levelLabel}',
+                  style: AppTextStyles.cardTitle.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                  softWrap: true,
+                ),
               ),
             ],
+          ),
+          const SizedBox(height: 6),
+          Text(detail.meaning, style: AppTextStyles.body, softWrap: true),
+          const SizedBox(height: 6),
+          Text(
+            detail.fact,
+            style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+            softWrap: true,
           ),
         ],
       ),
@@ -1376,8 +1633,9 @@ class _ProfileRadarCard extends StatelessWidget {
 
 class _RadarChartPainter extends CustomPainter {
   final _ProfileRadarStats stats;
+  final int? hoveredIndex;
 
-  _RadarChartPainter({required this.stats});
+  _RadarChartPainter({required this.stats, this.hoveredIndex});
 
   static const _labels = [
     'Заказы',
@@ -1403,6 +1661,28 @@ class _RadarChartPainter extends CustomPainter {
     final radius = math.min(size.width, size.height) * 0.31;
     const axisCount = 5;
     const startAngle = -math.pi / 2;
+
+    if (hoveredIndex != null) {
+      final axisAngle = startAngle + 2 * math.pi * hoveredIndex! / axisCount;
+      const halfSector = math.pi / axisCount;
+      final highlightPath = Path();
+
+      highlightPath.moveTo(center.dx, center.dy);
+      highlightPath.arcTo(
+        Rect.fromCircle(center: center, radius: radius),
+        axisAngle - halfSector,
+        halfSector * 2,
+        false,
+      );
+      highlightPath.close();
+
+      canvas.drawPath(
+        highlightPath,
+        Paint()
+          ..color = AppColors.accent.withOpacity(0.12)
+          ..style = PaintingStyle.fill,
+      );
+    }
 
     final gridPaint =
         Paint()
@@ -1463,6 +1743,7 @@ class _RadarChartPainter extends CustomPainter {
 
       canvas.drawLine(center, end, axisPaint);
 
+      final isActive = hoveredIndex == i;
       final labelOffset = Offset(
         center.dx + math.cos(angle) * (radius + 30),
         center.dy + math.sin(angle) * (radius + 30),
@@ -1472,7 +1753,7 @@ class _RadarChartPainter extends CustomPainter {
         text: TextSpan(
           text: _labels[i],
           style: AppTextStyles.caption.copyWith(
-            color: AppColors.textMuted,
+            color: isActive ? AppColors.accent : AppColors.textMuted,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -1522,7 +1803,11 @@ class _RadarChartPainter extends CustomPainter {
         center.dy + math.sin(angle) * pointRadius,
       );
 
-      canvas.drawCircle(point, 4, pointPaint);
+      canvas.drawCircle(
+        point,
+        hoveredIndex == i ? 5.5 : 4,
+        pointPaint,
+      );
     }
   }
 
@@ -1533,7 +1818,8 @@ class _RadarChartPainter extends CustomPainter {
         oldDelegate.stats.speed != stats.speed ||
         oldDelegate.stats.complexity != stats.complexity ||
         oldDelegate.stats.price != stats.price ||
-        oldDelegate.stats.paidTasksCount != stats.paidTasksCount;
+        oldDelegate.stats.paidTasksCount != stats.paidTasksCount ||
+        oldDelegate.hoveredIndex != hoveredIndex;
   }
 }
 
@@ -1587,7 +1873,6 @@ class _FeedbackCard extends StatelessWidget {
   final String text;
   final String date;
   final String reviewerName;
-  final String reviewerRole;
   final String? reviewerAvatarUrl;
   final String typeLabel;
   final String orderTitle;
@@ -1597,7 +1882,6 @@ class _FeedbackCard extends StatelessWidget {
     required this.text,
     required this.date,
     required this.reviewerName,
-    required this.reviewerRole,
     required this.reviewerAvatarUrl,
     required this.typeLabel,
     required this.orderTitle,
@@ -1605,12 +1889,16 @@ class _FeedbackCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasDate = date.trim().isNotEmpty;
+    final orderLabel = orderTitle.trim();
+
     return AppSurfaceCard(
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               AppProfileAvatar(avatarUrl: reviewerAvatarUrl, size: 38),
               const SizedBox(width: 10),
@@ -1626,7 +1914,7 @@ class _FeedbackCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '$reviewerRole · $typeLabel',
+                      typeLabel,
                       style: AppTextStyles.caption,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1634,7 +1922,7 @@ class _FeedbackCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(date, style: AppTextStyles.caption),
+              if (hasDate) Text(date, style: AppTextStyles.caption),
             ],
           ),
           const SizedBox(height: 12),
@@ -1659,15 +1947,38 @@ class _FeedbackCard extends StatelessWidget {
             text.trim().isEmpty ? 'Без текста' : text,
             style: AppTextStyles.body.copyWith(color: AppColors.text),
           ),
-          const SizedBox(height: 10),
-          Container(height: 1, color: AppColors.divider),
-          const SizedBox(height: 10),
-          Text(
-            orderTitle.trim().isEmpty ? 'Заказ без описания' : orderTitle,
-            style: AppTextStyles.caption,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
+          if (orderLabel.isNotEmpty &&
+              orderLabel != 'Заказ без описания') ...[
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.assignment_outlined,
+                  size: 16,
+                  color: AppColors.textMuted,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Заказ', style: AppTextStyles.caption),
+                      const SizedBox(height: 2),
+                      Text(
+                        orderLabel,
+                        style: AppTextStyles.body.copyWith(
+                          color: AppColors.text,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

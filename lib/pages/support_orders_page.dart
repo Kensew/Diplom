@@ -6,7 +6,9 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/support_moderation_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
+import 'package:flutter_freelance_platform/utils/pocketbase_date.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
@@ -195,7 +197,22 @@ class _SupportOrdersPageState extends State<SupportOrdersPage> {
 
     final records = await pb
         .collection('orders')
-        .getList(page: 1, perPage: 200);
+        .getList(page: 1, perPage: 200, sort: '-id');
+
+    final tasks = await pb.collection('tasks').getFullList(sort: '-id');
+    final taskStatuses = await pb.collection('task_statuses').getFullList();
+
+    final statusById = <String, String>{};
+    for (final status in taskStatuses) {
+      statusById[status.id] = status.data['name'] as String? ?? '';
+    }
+
+    final taskByOrderId = <String, dynamic>{};
+    for (final task in tasks) {
+      final orderId = _relationId(task.data['order_id']);
+      if (orderId == null || taskByOrderId.containsKey(orderId)) continue;
+      taskByOrderId[orderId] = task;
+    }
 
     final result = <Map<String, dynamic>>[];
 
@@ -210,14 +227,19 @@ class _SupportOrdersPageState extends State<SupportOrdersPage> {
       final customer = await _getRecordData('users', customerId);
       final executor = await _getRecordData('users', executorId);
 
+      final task = taskByOrderId[record.id];
+      final taskStatusId = task == null ? null : _relationId(task.data['status_id']);
+      final taskStatusName =
+          taskStatusId == null ? null : statusById[taskStatusId];
+
       result.add({
         'id': record.id,
-        'created': record.get<String>('created') ?? '',
+        'created': record.created,
         'task_description': record.data['task_description'] as String? ?? '',
         'deadline': record.data['deadline'] as String?,
         'price': record.data['price'],
-        'framework_name': framework?['name'] as String? ?? '—',
-        'language_name': language?['name'] as String? ?? '—',
+        'framework_name': framework?['name'] as String? ?? 'Не указан',
+        'language_name': language?['name'] as String? ?? 'Не указан',
         'customer_id': customerId,
         'customer_name':
             customer?['name'] as String? ??
@@ -226,30 +248,42 @@ class _SupportOrdersPageState extends State<SupportOrdersPage> {
         'executor_id': executorId,
         'executor_name':
             executor?['name'] as String? ?? executor?['email'] as String?,
+        'task_status': taskStatusName,
+        'has_task': task != null,
       });
     }
 
-    result.sort((a, b) {
-      final da = DateTime.tryParse(a['created'] as String? ?? '');
-      final db = DateTime.tryParse(b['created'] as String? ?? '');
-
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-
-      return db.compareTo(da);
-    });
+    result.sort(
+      (a, b) => PocketBaseDate.compareDescWithId(
+        createdA: a['created'] as String?,
+        createdB: b['created'] as String?,
+        idA: a['id'] as String?,
+        idB: b['id'] as String?,
+      ),
+    );
 
     _orders = result;
   }
 
-  Future<void> _delete(String id) async {
+  Future<void> _delete(Map<String, dynamic> order) async {
+    final id = order['id'] as String;
+    final assigned = _hasExecutor(order);
+    final inProgress =
+        assigned &&
+        !{'done', 'cancelled'}.contains(
+          (order['task_status'] as String? ?? '').toLowerCase(),
+        );
+
     final ok = await showDialog<bool>(
       context: context,
       builder:
           (_) => AlertDialog(
             title: const Text('Удалить заказ?'),
-            content: const Text('Заказ будет удалён из базы данных.'),
+            content: Text(
+              inProgress
+                  ? 'Заказ уже в работе. Будут удалены связанные задачи, отклики, переписка, оплаты и отзывы. Это действие нельзя отменить.'
+                  : 'Заказ и все связанные данные будут удалены из базы.',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -268,7 +302,7 @@ class _SupportOrdersPageState extends State<SupportOrdersPage> {
     setState(() => _loading = true);
 
     try {
-      await PocketBaseService.instance.pb.collection('orders').delete(id);
+      await SupportModerationService.instance.deleteOrderCascade(id);
       await _loadAll();
     } catch (e) {
       if (!mounted) return;
@@ -279,15 +313,40 @@ class _SupportOrdersPageState extends State<SupportOrdersPage> {
     }
   }
 
-  DateTime? _parseDate(String? raw) {
-    return DateTime.tryParse(raw ?? '');
+  String _taskStatusLabel(String? raw) {
+    switch ((raw ?? '').toLowerCase()) {
+      case 'new':
+        return 'Новая';
+      case 'in_progress':
+        return 'В работе';
+      case 'checking':
+        return 'На проверке';
+      case 'done':
+        return 'Завершена';
+      case 'cancelled':
+        return 'Отменена';
+      default:
+        return raw == null || raw.isEmpty ? 'Не указан' : raw;
+    }
   }
+
+  DateTime? _parseDate(String? raw) => PocketBaseDate.parse(raw);
 
   String _formatDate(String? raw) {
     final dt = _parseDate(raw);
-    if (dt == null) return '—';
+    if (dt == null) return 'Не указан';
 
     return _fmt.format(dt.toLocal());
+  }
+
+  String _formatCreated(String? raw) => _formatDate(raw);
+
+  String _executorLabel(String? executor) {
+    if (executor == null || executor.trim().isEmpty) {
+      return 'Не назначен';
+    }
+
+    return executor;
   }
 
   num _priceOf(Map<String, dynamic> order) {
@@ -355,7 +414,15 @@ class _SupportOrdersPageState extends State<SupportOrdersPage> {
 
     switch (_sort) {
       case 'Oldest':
-        return list.reversed.toList();
+        list.sort((a, b) {
+          return PocketBaseDate.compareAscWithId(
+            createdA: a['created'] as String?,
+            createdB: b['created'] as String?,
+            idA: a['id'] as String?,
+            idB: b['id'] as String?,
+          );
+        });
+        return list;
 
       case 'By deadline':
         list.sort((a, b) {
@@ -380,6 +447,14 @@ class _SupportOrdersPageState extends State<SupportOrdersPage> {
 
       case 'Newest':
       default:
+        list.sort((a, b) {
+          return PocketBaseDate.compareDescWithId(
+            createdA: a['created'] as String?,
+            createdB: b['created'] as String?,
+            idA: a['id'] as String?,
+            idB: b['id'] as String?,
+          );
+        });
         return list;
     }
   }
@@ -584,22 +659,30 @@ class _SupportOrdersPageState extends State<SupportOrdersPage> {
                                         framework:
                                             order['framework_name']
                                                 as String? ??
-                                            '—',
+                                            'Не указан',
                                         language:
                                             order['language_name'] as String? ??
-                                            '—',
+                                            'Не указан',
                                         customer:
                                             order['customer_name'] as String? ??
                                             'Заказчик',
-                                        executor:
-                                            order['executor_name'] as String?,
+                                        executor: _executorLabel(
+                                          order['executor_name'] as String?,
+                                        ),
+                                        created: _formatCreated(
+                                          order['created'] as String?,
+                                        ),
                                         deadline: _formatDate(
                                           order['deadline'] as String?,
                                         ),
                                         price: _formatMoney(_priceOf(order)),
                                         assigned: _hasExecutor(order),
+                                        taskStatus: _taskStatusLabel(
+                                          order['task_status'] as String?,
+                                        ),
+                                        hasTask: order['has_task'] == true,
                                         onTap: () => _openOrder(id),
-                                        onDelete: () => _delete(id),
+                                        onDelete: () => _delete(order),
                                       );
                                     }, childCount: filtered.length * 2 - 1),
                                   ),
@@ -657,7 +740,7 @@ class _SupportOrdersOverviewCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'orders',
+                text: 'Заказы',
                 color: AppColors.accent,
                 icon: Icons.view_list_outlined,
               ),
@@ -665,7 +748,7 @@ class _SupportOrdersOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Список всех заказов платформы. Можно открыть детали заказа или удалить запись.',
+            'Список всех заказов платформы. Можно удалить заказ, в том числе уже выполняющийся, если он нарушает правила.',
             style: AppTextStyles.body,
           ),
           const SizedBox(height: 14),
@@ -745,10 +828,13 @@ class _SupportOrderCard extends StatelessWidget {
   final String framework;
   final String language;
   final String customer;
-  final String? executor;
+  final String executor;
+  final String created;
   final String deadline;
   final String price;
   final bool assigned;
+  final String taskStatus;
+  final bool hasTask;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
@@ -758,9 +844,12 @@ class _SupportOrderCard extends StatelessWidget {
     required this.language,
     required this.customer,
     required this.executor,
+    required this.created,
     required this.deadline,
     required this.price,
     required this.assigned,
+    required this.taskStatus,
+    required this.hasTask,
     required this.onTap,
     required this.onDelete,
   });
@@ -820,18 +909,21 @@ class _SupportOrderCard extends StatelessWidget {
                     color: AppColors.textMuted,
                     icon: CupertinoIcons.clock,
                   ),
+              if (hasTask)
+                AppTag(
+                  icon: Icons.task_alt_rounded,
+                  label: taskStatus,
+                ),
             ],
           ),
           const SizedBox(height: 14),
-          Container(height: 1, color: AppColors.divider),
-          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: AppMetaItem(
-                  icon: Icons.currency_ruble_rounded,
-                  label: 'Бюджет',
-                  value: price,
+                  icon: CupertinoIcons.time,
+                  label: 'Создан',
+                  value: created,
                 ),
               ),
               const SizedBox(width: 12),
@@ -849,6 +941,19 @@ class _SupportOrderCard extends StatelessWidget {
             children: [
               Expanded(
                 child: AppMetaItem(
+                  icon: Icons.currency_ruble_rounded,
+                  label: 'Бюджет',
+                  value: price,
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: AppMetaItem(
                   icon: CupertinoIcons.person_crop_circle,
                   label: 'Заказчик',
                   value: customer,
@@ -859,10 +964,7 @@ class _SupportOrderCard extends StatelessWidget {
                 child: AppMetaItem(
                   icon: Icons.engineering_outlined,
                   label: 'Исполнитель',
-                  value:
-                      executor == null || executor!.trim().isEmpty
-                          ? '—'
-                          : executor!,
+                  value: executor,
                 ),
               ),
               const SizedBox(width: 8),

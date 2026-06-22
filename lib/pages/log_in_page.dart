@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/support_moderation_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
@@ -99,7 +100,25 @@ class _LogInPageState extends State<LogInPage> {
         try {
           final user = await service.pb.collection('users').getOne(userId);
           role = _normalizeRole(user.data['role'], loginEmail);
-        } catch (_) {
+
+          final isBanned =
+              await SupportModerationService.instance.isUserBanned(userId);
+          if (isBanned) {
+            service.logout();
+            final reason =
+                await SupportModerationService.instance.banReasonForUser(
+              userId,
+            );
+            throw Exception(
+              reason == null || reason.isEmpty
+                  ? 'Аккаунт заблокирован службой поддержки'
+                  : 'Аккаунт заблокирован: $reason',
+            );
+          }
+        } catch (e) {
+          if (e is Exception && e.toString().contains('заблокирован')) {
+            rethrow;
+          }
           role = _roleByEmailFallback(loginEmail);
         }
       }

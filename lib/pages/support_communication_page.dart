@@ -9,7 +9,9 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/support_moderation_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
+import 'package:flutter_freelance_platform/utils/pocketbase_date.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
 const String _attachmentOnlyText = 'Вложение';
@@ -44,6 +46,7 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
   bool _sending = false;
   String? _error;
   String? _requestReason;
+  String _requestStatus = 'open';
 
   String? get _currentUserId => PocketBaseService.instance.currentUserId;
 
@@ -135,7 +138,7 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
 
   DateTime? _parseDate(dynamic raw) {
     if (raw is! String) return null;
-    return DateTime.tryParse(raw)?.toLocal();
+    return PocketBaseDate.parse(raw)?.toLocal();
   }
 
   Future<Map<String, dynamic>?> _getRecordData(
@@ -170,8 +173,8 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
 
   void _sortMessages() {
     _messages.sort((a, b) {
-      final da = DateTime.tryParse(a['created'] as String? ?? '');
-      final db = DateTime.tryParse(b['created'] as String? ?? '');
+      final da = PocketBaseDate.parse(a['created'] as String?);
+      final db = PocketBaseDate.parse(b['created'] as String?);
 
       if (da == null && db == null) return 0;
       if (da == null) return 1;
@@ -208,6 +211,66 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
         .getOne(widget.requestId);
 
     _requestReason = request.data['reason'] as String? ?? 'Чат поддержки';
+    _requestStatus = request.get<String>('status') ?? 'open';
+  }
+
+  bool get _isSupport => PocketBaseService.instance.isSupport;
+
+  bool get _isClosed => _requestStatus == 'closed';
+
+  Future<void> _toggleRequestStatus() async {
+    if (!_isSupport) return;
+
+    final close = !_isClosed;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder:
+          (_) => AlertDialog(
+            title: Text(close ? 'Закрыть обращение?' : 'Открыть обращение?'),
+            content: Text(
+              close
+                  ? 'Обращение будет помечено как закрытое. Переписка останется доступной.'
+                  : 'Обращение снова появится в списке открытых.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(close ? 'Закрыть' : 'Открыть'),
+              ),
+            ],
+          ),
+    );
+
+    if (ok != true) return;
+
+    setState(() => _loading = true);
+
+    try {
+      if (close) {
+        await SupportModerationService.instance.closeSupportRequest(
+          widget.requestId,
+        );
+      } else {
+        await SupportModerationService.instance.reopenSupportRequest(
+          widget.requestId,
+        );
+      }
+
+      await _loadRequestReason();
+      if (!mounted) return;
+      _showSnack(close ? 'Обращение закрыто' : 'Обращение открыто');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('Ошибка: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   Future<void> _loadHistory() async {
@@ -521,6 +584,16 @@ class _SupportCommunicationPageState extends State<SupportCommunicationPage> {
                         subtitle: subtitle,
                         onBack: _goBack,
                         onRefresh: _loadAll,
+                        trailing:
+                            _isSupport
+                                ? AppIconSurfaceButton(
+                                  icon:
+                                      _isClosed
+                                          ? CupertinoIcons.lock_open
+                                          : CupertinoIcons.checkmark_seal,
+                                  onTap: _toggleRequestStatus,
+                                )
+                                : null,
                       ),
                       Expanded(
                         child:

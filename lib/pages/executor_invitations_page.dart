@@ -715,7 +715,7 @@ class _InvitationsOverviewCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'invites',
+                text: 'Приглашения',
                 color: AppColors.accent,
                 icon: CupertinoIcons.mail,
               ),

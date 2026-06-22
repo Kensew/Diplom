@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:flutter_freelance_platform/services/application_decision_service.dart';
 import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/prepayment_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
@@ -34,6 +35,10 @@ class _ReqItem {
   final String? complexityReason;
   final String source;
   final String message;
+  final bool requiresPrepayment;
+  final bool orderOffersPrepayment;
+  final String prepaymentNote;
+  final String? paymentType;
 
   _ReqItem({
     required this.id,
@@ -55,6 +60,10 @@ class _ReqItem {
     this.complexityReason,
     this.source = 'executor_apply',
     this.message = '',
+    this.requiresPrepayment = false,
+    this.orderOffersPrepayment = false,
+    this.prepaymentNote = '',
+    this.paymentType,
   });
 }
 
@@ -310,6 +319,10 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
           complexitySource: task?['complexity_source'] as String?,
           source: _source(app.data['source']),
           message: app.data['message'] as String? ?? '',
+          requiresPrepayment:
+              PrepaymentService.applicationRequiresPrepayment(app.data),
+          orderOffersPrepayment: PrepaymentService.orderOffersPrepayment(order),
+          prepaymentNote: app.data['prepayment_note'] as String? ?? '',
         ),
       );
     }
@@ -365,6 +378,9 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
           orderId: orderId,
           complexityFinal: _intValue(task['complexity_final']),
           complexitySource: task['complexity_source'] as String?,
+          paymentType: PrepaymentService.normalizedPaymentType(
+            payment.data['payment_type'],
+          ),
         ),
       );
     }
@@ -463,7 +479,9 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
     final paidStatusId = await ApplicationDecisionService.firstIdFromCollection(
       'payment_statuses',
-      ['paid', 'approved', 'done'],
+      item.paymentType == 'prepayment'
+          ? ['prepayment_paid', 'pending', 'paid']
+          : ['paid', 'approved', 'done'],
     );
 
     if (paidStatusId == null) return;
@@ -620,7 +638,7 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
 
   String _typeLabel(_ReqItem item) {
     if (item.type == _ReqType.payment) {
-      return 'Запрос оплаты';
+      return PrepaymentService.paymentTypeLabel(item.paymentType ?? 'final');
     }
 
     if (_isCustomerInvite(item)) {
@@ -643,7 +661,11 @@ class _CustomerApplicationsPageState extends State<CustomerApplicationsPage> {
   }
 
   String _positiveButtonText(_ReqItem item) {
-    return item.type == _ReqType.payment ? 'Оплатить' : 'Принять';
+    if (item.type == _ReqType.payment) {
+      return item.paymentType == 'prepayment' ? 'Оплатить предоплату' : 'Оплатить';
+    }
+
+    return 'Принять';
   }
 
   String _rejectButtonText(_ReqItem item) {
@@ -885,7 +907,7 @@ class _ApplicationsOverviewCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'requests',
+                text: 'Заявки',
                 color: AppColors.accent,
                 icon: CupertinoIcons.mail,
               ),
@@ -1225,8 +1247,26 @@ class _RequestCard extends StatelessWidget {
                   icon: CupertinoIcons.doc_text,
                   label: 'Есть задача',
                 ),
+              if (item.orderOffersPrepayment &&
+                  item.type == _ReqType.application)
+                AppTag(
+                  icon: Icons.payments_outlined,
+                  label: 'Возможна предоплата',
+                ),
+              if (item.requiresPrepayment && item.type == _ReqType.application)
+                AppTag(
+                  icon: Icons.payments_rounded,
+                  label: 'Исполнитель: только по предоплате',
+                ),
             ],
           ),
+          if (item.prepaymentNote.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Условие предоплаты: ${item.prepaymentNote}',
+              style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+            ),
+          ],
           if ((item.complexityReason ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(

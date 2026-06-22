@@ -7,8 +7,10 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import 'package:flutter_freelance_platform/services/customer_order_labels.dart';
 import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/prepayment_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
@@ -26,6 +28,9 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
   final _descCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
   final _screensCtrl = TextEditingController(text: '1');
+  final _prepaymentPercentCtrl = TextEditingController(
+    text: '${PrepaymentService.defaultPercent}',
+  );
   final _dateFmt = DateFormat('dd.MM.yyyy');
 
   DateTime? _deadline;
@@ -37,6 +42,8 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
   bool _requiresDatabase = false;
   bool _requiresApi = false;
   bool _requiresPayment = false;
+
+  bool _prepaymentAvailable = false;
 
   List<Map<String, dynamic>> _frameworks = [];
   List<Map<String, dynamic>> _languages = [];
@@ -55,6 +62,7 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
     _descCtrl.addListener(_refreshComplexityPreview);
     _priceCtrl.addListener(_refreshComplexityPreview);
     _screensCtrl.addListener(_refreshComplexityPreview);
+    _prepaymentPercentCtrl.addListener(_refreshComplexityPreview);
     _loadMeta();
   }
 
@@ -63,9 +71,11 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
     _descCtrl.removeListener(_refreshComplexityPreview);
     _priceCtrl.removeListener(_refreshComplexityPreview);
     _screensCtrl.removeListener(_refreshComplexityPreview);
+    _prepaymentPercentCtrl.removeListener(_refreshComplexityPreview);
     _descCtrl.dispose();
     _priceCtrl.dispose();
     _screensCtrl.dispose();
+    _prepaymentPercentCtrl.dispose();
     super.dispose();
   }
 
@@ -187,6 +197,7 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
                 return {
                   'id': record.id,
                   'name': record.data['name'] as String? ?? '',
+                  'language_id': _relationId(record.data['language_id']),
                 };
               })
               .where((item) {
@@ -278,11 +289,81 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
     });
   }
 
+  String? _relationId(dynamic value) {
+    if (value == null) return null;
+
+    if (value is String) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+
+    if (value is List && value.isNotEmpty) {
+      final first = value.first;
+      if (first is String) {
+        final trimmed = first.trim();
+        return trimmed.isEmpty ? null : trimmed;
+      }
+    }
+
+    return null;
+  }
+
+  List<Map<String, dynamic>> get _availableFrameworks {
+    final languageId = _selectedLanguageId;
+
+    if (languageId == null) {
+      return _frameworks;
+    }
+
+    return _frameworks
+        .where((item) => item['language_id'] == languageId)
+        .toList();
+  }
+
+  String? _languageIdForFramework(String? frameworkId) {
+    if (frameworkId == null) return null;
+
+    for (final item in _frameworks) {
+      if (item['id'] == frameworkId) {
+        return item['language_id'] as String?;
+      }
+    }
+
+    return null;
+  }
+
+  void _selectFramework(String? id) {
+    setState(() {
+      _selectedFrameworkId = id;
+
+      if (id == null) return;
+
+      final languageId = _languageIdForFramework(id);
+      if (languageId != null) {
+        _selectedLanguageId = languageId;
+      }
+    });
+  }
+
+  void _selectLanguage(String? id) {
+    setState(() {
+      _selectedLanguageId = id;
+
+      if (id == null) return;
+
+      final frameworkLanguageId = _languageIdForFramework(_selectedFrameworkId);
+      if (_selectedFrameworkId != null && frameworkLanguageId != id) {
+        _selectedFrameworkId = null;
+      }
+    });
+  }
+
   Future<void> _selectReference({
     required String title,
     required List<Map<String, dynamic>> values,
     required String? currentId,
     required ValueChanged<String?> onSelected,
+    required bool isFramework,
   }) async {
     await showAppBottomSheet(
       context: context,
@@ -302,9 +383,17 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
           ...values.map((item) {
             final id = item['id'] as String;
             final name = item['name'] as String;
+            final hint =
+                isFramework
+                    ? CustomerOrderLabels.frameworkHint(name)
+                    : CustomerOrderLabels.languageHint(name);
 
             return AppBottomSheetOption(
-              title: name,
+              title: CustomerOrderLabels.pickerTitle(
+                name,
+                isFramework: isFramework,
+              ),
+              subtitle: hint,
               selected: currentId == id,
               onTap: () {
                 Navigator.pop(context);
@@ -317,12 +406,17 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
     );
   }
 
-  String _selectedName(List<Map<String, dynamic>> values, String? id) {
+  String _selectedName(
+    List<Map<String, dynamic>> values,
+    String? id, {
+    required bool isFramework,
+  }) {
     if (id == null) return 'Не выбрано';
 
     for (final item in values) {
       if (item['id'] == id) {
-        return item['name'] as String? ?? 'Не выбрано';
+        final name = item['name'] as String? ?? 'Не выбрано';
+        return CustomerOrderLabels.rowValue(name, isFramework: isFramework);
       }
     }
 
@@ -336,6 +430,10 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
   int _parseScreensCount() {
     final value = int.tryParse(_screensCtrl.text.trim()) ?? 1;
     return value.clamp(1, 99).toInt();
+  }
+
+  int? _parsePrepaymentPercent() {
+    return PrepaymentService.parsePercent(_prepaymentPercentCtrl.text);
   }
 
   OrderComplexityResult _calculateComplexity() {
@@ -363,6 +461,30 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
       return;
     }
 
+    final prepaymentPercent = _parsePrepaymentPercent();
+
+    if (_prepaymentAvailable && prepaymentPercent == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Укажите размер предоплаты от 10 до 100 %'),
+        ),
+      );
+      return;
+    }
+
+    if (_selectedFrameworkId != null && _selectedLanguageId != null) {
+      final frameworkLanguageId = _languageIdForFramework(_selectedFrameworkId);
+      if (frameworkLanguageId != null &&
+          frameworkLanguageId != _selectedLanguageId) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Язык не соответствует выбранному фреймворку'),
+          ),
+        );
+        return;
+      }
+    }
+
     final service = PocketBaseService.instance;
     final userId = service.currentUserId;
 
@@ -378,6 +500,10 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
     setState(() => _saving = true);
 
     try {
+      final now = DateTime.now().toUtc();
+      final orderCreated =
+          '${now.toIso8601String().substring(0, 19).replaceFirst('T', ' ')}.000Z';
+
       final order = await service.pb
           .collection('orders')
           .create(
@@ -389,9 +515,13 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
                 'language_id': _selectedLanguageId,
               'task_description': description,
               'deadline': _deadline!.toIso8601String(),
+              'order_created': orderCreated,
               'price': price,
               'complexity_auto': complexity.complexity,
               'complexity_factors': complexity.factorsJson,
+              'prepayment_required': _prepaymentAvailable,
+              if (_prepaymentAvailable && prepaymentPercent != null)
+                'prepayment_percent': prepaymentPercent,
             },
           );
 
@@ -458,7 +588,7 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
                     children: [
                       AppTopBar(
                         title: 'Создать заказ',
-                        subtitle: 'Описание, бюджет, срок и сложность',
+                        subtitle: 'Опишите задачу, бюджет и сроки',
                         onBack: _goBack,
                         onRefresh: _loadMeta,
                       ),
@@ -479,36 +609,59 @@ class _CustomerCreateOrderPageState extends State<CustomerCreateOrderPage> {
                               frameworkName: _selectedName(
                                 _frameworks,
                                 _selectedFrameworkId,
+                                isFramework: true,
                               ),
                               languageName: _selectedName(
                                 _languages,
                                 _selectedLanguageId,
+                                isFramework: false,
                               ),
                               deadlineText:
                                   _deadline == null
                                       ? 'Не выбран'
                                       : _dateFmt.format(_deadline!),
                               onPickFramework: () {
+                                final options = _availableFrameworks;
+
+                                if (options.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Для выбранного направления нет подходящего типа продукта',
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+
                                 _selectReference(
-                                  title: 'Фреймворк',
-                                  values: _frameworks,
+                                  title: 'Тип продукта',
+                                  values: options,
                                   currentId: _selectedFrameworkId,
-                                  onSelected: (id) {
-                                    setState(() => _selectedFrameworkId = id);
-                                  },
+                                  onSelected: _selectFramework,
+                                  isFramework: true,
                                 );
                               },
                               onPickLanguage: () {
                                 _selectReference(
-                                  title: 'Язык',
+                                  title: 'Направление разработки',
                                   values: _languages,
                                   currentId: _selectedLanguageId,
-                                  onSelected: (id) {
-                                    setState(() => _selectedLanguageId = id);
-                                  },
+                                  onSelected: _selectLanguage,
+                                  isFramework: false,
                                 );
                               },
                               onPickDeadline: _pickDeadline,
+                            ),
+                            const SizedBox(height: 12),
+                            _PrepaymentCard(
+                              saving: _saving,
+                              prepaymentAvailable: _prepaymentAvailable,
+                              prepaymentPercentCtrl: _prepaymentPercentCtrl,
+                              orderPrice: _parsePrice(),
+                              onPrepaymentAvailableChanged: (value) {
+                                setState(() => _prepaymentAvailable = value);
+                              },
                             ),
                             const SizedBox(height: 12),
                             _ComplexityInputCard(
@@ -592,7 +745,7 @@ class _CreateOrderIntroCard extends StatelessWidget {
             ),
           ),
           const AppStatusPill(
-            text: 'draft',
+            text: 'Черновик',
             color: AppColors.accent,
             icon: CupertinoIcons.doc_text,
           ),
@@ -632,7 +785,7 @@ class _OrderFormCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppSectionHeader(title: 'Параметры заказа'),
+          AppSectionHeader(title: 'Основная информация'),
           const SizedBox(height: 12),
           TextField(
             controller: descCtrl,
@@ -641,8 +794,9 @@ class _OrderFormCard extends StatelessWidget {
             minLines: 3,
             style: AppTextStyles.body.copyWith(color: AppColors.text),
             decoration: const InputDecoration(
-              labelText: 'Описание задачи',
-              hintText: 'Опиши, что нужно сделать исполнителю',
+              labelText: 'Что нужно сделать',
+              hintText:
+                  'Например: сайт для записи клиентов с формой и личным кабинетом',
               alignLabelWithHint: true,
             ),
           ),
@@ -654,22 +808,22 @@ class _OrderFormCard extends StatelessWidget {
             style: AppTextStyles.body.copyWith(color: AppColors.text),
             decoration: const InputDecoration(
               labelText: 'Бюджет, ₽',
-              hintText: 'Например: 5000',
+              hintText: 'Сколько вы готовы заплатить',
               suffixIcon: Icon(Icons.currency_ruble_rounded),
             ),
           ),
           const SizedBox(height: 12),
           _PickerRow(
             icon: Icons.view_in_ar_outlined,
-            label: 'Фреймворк',
+            label: 'Тип продукта',
             value: frameworkName,
             disabled: saving,
             onTap: onPickFramework,
           ),
           const SizedBox(height: 10),
           _PickerRow(
-            icon: Icons.code_rounded,
-            label: 'Язык',
+            icon: Icons.devices_rounded,
+            label: 'Направление',
             value: languageName,
             disabled: saving,
             onTap: onPickLanguage,
@@ -677,11 +831,91 @@ class _OrderFormCard extends StatelessWidget {
           const SizedBox(height: 10),
           _PickerRow(
             icon: CupertinoIcons.calendar,
-            label: 'Дедлайн',
+            label: 'Когда нужно сдать',
             value: deadlineText,
             disabled: saving,
             onTap: onPickDeadline,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrepaymentCard extends StatelessWidget {
+  final bool saving;
+  final bool prepaymentAvailable;
+  final TextEditingController prepaymentPercentCtrl;
+  final double orderPrice;
+  final ValueChanged<bool> onPrepaymentAvailableChanged;
+
+  const _PrepaymentCard({
+    required this.saving,
+    required this.prepaymentAvailable,
+    required this.prepaymentPercentCtrl,
+    required this.orderPrice,
+    required this.onPrepaymentAvailableChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final prepaymentPercent = PrepaymentService.parsePercent(
+      prepaymentPercentCtrl.text,
+    );
+    final prepaymentAmount =
+        orderPrice > 0 && prepaymentPercent != null
+            ? PrepaymentService.prepaymentAmount(
+              price: orderPrice,
+              percent: prepaymentPercent,
+            )
+            : 0.0;
+
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionHeader(title: 'Условия оплаты'),
+          const SizedBox(height: 8),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              'Возможна предоплата',
+              style: AppTextStyles.body.copyWith(color: AppColors.text),
+            ),
+            subtitle: Text(
+              'Исполнитель увидит, что вы готовы внести предоплату по договорённости',
+              style: AppTextStyles.caption,
+            ),
+            value: prepaymentAvailable,
+            activeColor: AppColors.accent,
+            onChanged: saving ? null : onPrepaymentAvailableChanged,
+          ),
+          if (prepaymentAvailable) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: prepaymentPercentCtrl,
+              enabled: !saving,
+              keyboardType: TextInputType.number,
+              style: AppTextStyles.body.copyWith(color: AppColors.text),
+              decoration: const InputDecoration(
+                labelText: 'Размер предоплаты, %',
+                hintText: 'Например: 50',
+                suffixText: '%',
+              ),
+            ),
+            if (orderPrice > 0 && prepaymentPercent != null) ...[
+              const SizedBox(height: 10),
+              AppTag(
+                expand: true,
+                icon: Icons.payments_rounded,
+                label:
+                    'Предоплата $prepaymentPercent% — '
+                    '${prepaymentAmount.toStringAsFixed(0)} ₽ из '
+                    '${orderPrice.toStringAsFixed(0)} ₽',
+              ),
+            ],
+          ],
         ],
       ),
     );
@@ -724,7 +958,12 @@ class _ComplexityInputCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppSectionHeader(title: 'Факторы сложности'),
+          AppSectionHeader(title: CustomerOrderLabels.complexitySectionTitle),
+          const SizedBox(height: 6),
+          Text(
+            CustomerOrderLabels.complexitySectionHint,
+            style: AppTextStyles.caption,
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: screensCtrl,
@@ -732,34 +971,34 @@ class _ComplexityInputCard extends StatelessWidget {
             keyboardType: TextInputType.number,
             style: AppTextStyles.body.copyWith(color: AppColors.text),
             decoration: const InputDecoration(
-              labelText: 'Количество экранов или функций',
-              hintText: 'Например: 3',
+              labelText: CustomerOrderLabels.screensLabel,
+              hintText: CustomerOrderLabels.screensHint,
               suffixIcon: Icon(Icons.dashboard_customize_outlined),
             ),
           ),
           const SizedBox(height: 8),
           _ComplexitySwitch(
-            title: 'Работа с файлами',
+            option: CustomerOrderLabels.complexityFactor('files'),
             value: requiresFiles,
             onChanged: saving ? null : onRequiresFilesChanged,
           ),
           _ComplexitySwitch(
-            title: 'Авторизация или роли',
+            option: CustomerOrderLabels.complexityFactor('auth'),
             value: requiresAuth,
             onChanged: saving ? null : onRequiresAuthChanged,
           ),
           _ComplexitySwitch(
-            title: 'База данных',
+            option: CustomerOrderLabels.complexityFactor('database'),
             value: requiresDatabase,
             onChanged: saving ? null : onRequiresDatabaseChanged,
           ),
           _ComplexitySwitch(
-            title: 'Интеграция/API',
+            option: CustomerOrderLabels.complexityFactor('api'),
             value: requiresApi,
             onChanged: saving ? null : onRequiresApiChanged,
           ),
           _ComplexitySwitch(
-            title: 'Оплата или платёжная логика',
+            option: CustomerOrderLabels.complexityFactor('payment'),
             value: requiresPayment,
             onChanged: saving ? null : onRequiresPaymentChanged,
           ),
@@ -770,12 +1009,12 @@ class _ComplexityInputCard extends StatelessWidget {
 }
 
 class _ComplexitySwitch extends StatelessWidget {
-  final String title;
+  final CustomerOrderOption option;
   final bool value;
   final ValueChanged<bool>? onChanged;
 
   const _ComplexitySwitch({
-    required this.title,
+    required this.option,
     required this.value,
     required this.onChanged,
   });
@@ -785,9 +1024,13 @@ class _ComplexitySwitch extends StatelessWidget {
     return SwitchListTile.adaptive(
       contentPadding: EdgeInsets.zero,
       title: Text(
-        title,
+        option.title,
         style: AppTextStyles.body.copyWith(color: AppColors.text),
       ),
+      subtitle:
+          option.subtitle == null
+              ? null
+              : Text(option.subtitle!, style: AppTextStyles.caption),
       value: value,
       activeColor: AppColors.accent,
       onChanged: onChanged,
@@ -807,9 +1050,17 @@ class _ComplexityPreviewCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppSectionHeader(title: 'Автоматическая оценка'),
+          AppSectionHeader(title: CustomerOrderLabels.complexityPreviewTitle),
+          const SizedBox(height: 6),
+          Text(
+            CustomerOrderLabels.complexityPreviewHint,
+            style: AppTextStyles.caption,
+          ),
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               AppStatusPill(
                 text:
@@ -817,10 +1068,9 @@ class _ComplexityPreviewCard extends StatelessWidget {
                 color: AppColors.accent,
                 icon: Icons.bar_chart_rounded,
               ),
-              const SizedBox(width: 8),
               AppTag(
                 icon: CupertinoIcons.sum,
-                label: '${complexity.points} балл.',
+                label: '${complexity.points} баллов',
               ),
             ],
           ),
@@ -843,6 +1093,7 @@ class _ComplexityPreviewCard extends StatelessWidget {
                         style: AppTextStyles.small.copyWith(
                           color: AppColors.text,
                         ),
+                        softWrap: true,
                       ),
                     ),
                   ],
@@ -852,7 +1103,7 @@ class _ComplexityPreviewCard extends StatelessWidget {
           ] else ...[
             const SizedBox(height: 10),
             Text(
-              'Пока дополнительных факторов нет.',
+              'Пока дополнительных пунктов нет.',
               style: AppTextStyles.caption,
             ),
           ],
@@ -884,30 +1135,40 @@ class _PickerRow extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
       radius: AppRadii.sm,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, size: 20, color: AppColors.textMuted),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              label,
-              style: AppTextStyles.small.copyWith(color: AppColors.textMuted),
-            ),
-          ),
-          Flexible(
-            child: Text(
-              value,
-              style: AppTextStyles.small.copyWith(
-                color: AppColors.text,
-                fontWeight: FontWeight.w700,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppTextStyles.small.copyWith(
+                    color: AppColors.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: AppTextStyles.small.copyWith(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  softWrap: true,
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 8),
-          const Icon(
-            CupertinoIcons.chevron_right,
-            size: 16,
-            color: AppColors.textMuted,
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(
+              CupertinoIcons.chevron_right,
+              size: 16,
+              color: AppColors.textMuted,
+            ),
           ),
         ],
       ),

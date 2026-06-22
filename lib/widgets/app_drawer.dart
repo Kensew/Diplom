@@ -155,6 +155,12 @@ class AppDrawer extends StatelessWidget {
                         selected: _isSelected(currentRoute, '/support/orders'),
                       ),
                       _DrawerItem(
+                        icon: Icons.people_outline_rounded,
+                        label: 'Пользователи',
+                        route: '/support/users',
+                        selected: _isSelected(currentRoute, '/support/users'),
+                      ),
+                      _DrawerItem(
                         icon: Icons.support_agent_rounded,
                         label: 'Чаты поддержки',
                         route: '/support',

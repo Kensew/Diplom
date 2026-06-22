@@ -435,7 +435,7 @@ class _WelcomeCard extends StatelessWidget {
             ),
           ),
           const AppStatusPill(
-            text: 'customer',
+            text: 'Заказчик',
             color: AppColors.accent,
             icon: CupertinoIcons.person_crop_circle,
           ),

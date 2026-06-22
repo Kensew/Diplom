@@ -2,6 +2,7 @@
 
 import 'package:flutter_freelance_platform/services/order_complexity_service.dart';
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/services/prepayment_service.dart';
 
 class ApplicationDecisionService {
   const ApplicationDecisionService._();
@@ -325,7 +326,13 @@ class ApplicationDecisionService {
       'created',
     ]);
 
+    final prepaymentNeeded = PrepaymentService.needsPrepayment(
+      order: order,
+      application: application,
+    );
+
     final paymentStatusId = await firstIdFromCollection('payment_statuses', [
+      if (prepaymentNeeded) 'awaiting_prepayment',
       'none',
       'pending',
       'unpaid',
@@ -342,6 +349,7 @@ class ApplicationDecisionService {
     );
 
     final price = (order['price'] as num?) ?? 0;
+    final prepaymentPercent = PrepaymentService.resolvePercent(order);
 
     final task = await pb
         .collection('tasks')
@@ -356,8 +364,17 @@ class ApplicationDecisionService {
             'payment_amount': price,
             'complexity_final': finalComplexity,
             'complexity_source': complexitySource,
+            'prepayment_required': prepaymentNeeded,
+            if (prepaymentNeeded) 'prepayment_percent': prepaymentPercent,
           },
         );
+
+    await PrepaymentService.createPrepaymentRequestIfNeeded(
+      taskId: task.id,
+      executorId: executorId,
+      order: order,
+      application: application,
+    );
 
     return task.id;
   }
@@ -574,6 +591,8 @@ class ApplicationDecisionService {
     int? proposedComplexity,
     String? complexityReason,
     String? message,
+    bool requiresPrepayment = false,
+    String? prepaymentNote,
   }) async {
     final pb = PocketBaseService.instance.pb;
 
@@ -605,6 +624,7 @@ class ApplicationDecisionService {
             );
 
     final safeReason = complexityReason?.trim() ?? '';
+    final safePrepaymentNote = prepaymentNote?.trim() ?? '';
 
     if (safeProposedComplexity != autoComplexity && safeReason.isEmpty) {
       throw 'Укажите причину изменения сложности';
@@ -637,6 +657,8 @@ class ApplicationDecisionService {
               'message': message?.trim() ?? '',
               'complexity_proposed': safeProposedComplexity,
               'complexity_reason': safeReason,
+              'requires_prepayment': requiresPrepayment,
+              'prepayment_note': safePrepaymentNote,
             },
           );
 
@@ -655,6 +677,8 @@ class ApplicationDecisionService {
             'message': message?.trim() ?? '',
             'complexity_proposed': safeProposedComplexity,
             'complexity_reason': safeReason,
+            'requires_prepayment': requiresPrepayment,
+            'prepayment_note': safePrepaymentNote,
           },
         );
 

@@ -40,8 +40,48 @@ class PocketBaseService {
 
   RecordModel? get currentUser => pb.authStore.record;
 
-  String get currentUserRole {
-    return pb.authStore.record?.get<String>('role') ?? 'executor';
+  String get currentUserRole => _resolveRole(pb.authStore.record);
+
+  bool get isSupport => currentUserRole == 'support';
+
+  bool get isBanned {
+    final value = pb.authStore.record?.data['is_banned'];
+    if (value == true || value == 1) return true;
+    if (value is String) return value.trim().toLowerCase() == 'true';
+    return false;
+  }
+
+  static String resolveRole(RecordModel? record) => _resolveRole(record);
+
+  static String _resolveRole(RecordModel? record) {
+    if (record == null) return 'executor';
+
+    final rawRole = record.get<String>('role')?.trim().toLowerCase();
+    if (rawRole == 'customer' ||
+        rawRole == 'support' ||
+        rawRole == 'executor') {
+      return rawRole!;
+    }
+
+    return _roleByEmail(record.get<String>('email') ?? '');
+  }
+
+  static String _roleByEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+
+    if (normalized == 'customer@test.ru' || normalized == 'dev1@test.local') {
+      return 'customer';
+    }
+
+    if (normalized == 'support@test.ru' || normalized == 'dev3@test.local') {
+      return 'support';
+    }
+
+    if (normalized == 'executor@test.ru' || normalized == 'dev2@test.local') {
+      return 'executor';
+    }
+
+    return 'executor';
   }
 
   String get currentUserName {

@@ -864,7 +864,7 @@ class _ExecutorsOverviewCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'executors',
+                text: 'Исполнители',
                 color: AppColors.accent,
                 icon: CupertinoIcons.person_2,
               ),

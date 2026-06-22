@@ -42,8 +42,13 @@ class PocketBaseFileService {
     }
 
     final encodedFileName = Uri.encodeComponent(fileName);
+    final base =
+        '${PocketBaseService.baseUrl}/api/files/$collectionName/$recordId/$encodedFileName';
 
-    return '${PocketBaseService.baseUrl}/api/files/$collectionName/$recordId/$encodedFileName';
+    final token = PocketBaseService.instance.pb.authStore.token;
+    if (token.isEmpty) return base;
+
+    return '$base?token=${Uri.encodeComponent(token)}';
   }
 
   static Future<http.MultipartFile> multipartFromXFile({

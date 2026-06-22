@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
 import 'package:flutter_freelance_platform/services/theme.dart';
+import 'package:flutter_freelance_platform/utils/pocketbase_date.dart';
 import 'package:flutter_freelance_platform/widgets/app_drawer.dart';
 import 'package:flutter_freelance_platform/widgets/app_ui.dart';
 
@@ -25,6 +26,7 @@ class _SupportPageState extends State<SupportPage> {
   final _dateFmt = DateFormat('dd.MM.yyyy');
 
   String _sortOrder = 'Newest';
+  String _statusFilter = 'open';
 
   bool _loading = true;
   bool _silentRefreshing = false;
@@ -235,7 +237,7 @@ class _SupportPageState extends State<SupportPage> {
 
       final requestResult = await pb
           .collection('support_requests')
-          .getList(page: 1, perPage: 200);
+          .getList(page: 1, perPage: 200, sort: '-id');
 
       final result = <Map<String, dynamic>>[];
 
@@ -260,7 +262,8 @@ class _SupportPageState extends State<SupportPage> {
         result.add({
           'id': record.id,
           'reason': record.data['reason'] as String? ?? '',
-          'created': record.get<String>('created') ?? '',
+          'created': record.created,
+          'status': record.get<String>('status') ?? 'open',
           'user_id': requestUserId,
           'user_name':
               requestUser?['name'] as String? ??
@@ -271,14 +274,12 @@ class _SupportPageState extends State<SupportPage> {
       }
 
       result.sort((a, b) {
-        final da = DateTime.tryParse(a['created'] as String? ?? '');
-        final db = DateTime.tryParse(b['created'] as String? ?? '');
-
-        if (da == null && db == null) return 0;
-        if (da == null) return 1;
-        if (db == null) return -1;
-
-        return db.compareTo(da);
+        return PocketBaseDate.compareDescWithId(
+          createdA: a['created'] as String?,
+          createdB: b['created'] as String?,
+          idA: a['id'] as String?,
+          idB: b['id'] as String?,
+        );
       });
 
       if (!mounted) return;
@@ -308,6 +309,14 @@ class _SupportPageState extends State<SupportPage> {
 
     var list =
         _requests.where((request) {
+          final status = request['status'] as String? ?? 'open';
+          if (_statusFilter == 'open' && status == 'closed') {
+            return false;
+          }
+          if (_statusFilter == 'closed' && status != 'closed') {
+            return false;
+          }
+
           final reason = request['reason'] as String? ?? '';
           final userName = request['user_name'] as String? ?? '';
           final createdAt = _formatDate(request['created'] as String?);
@@ -326,8 +335,8 @@ class _SupportPageState extends State<SupportPage> {
   }
 
   String _formatDate(String? raw) {
-    final dt = DateTime.tryParse(raw ?? '');
-    if (dt == null) return '—';
+    final dt = PocketBaseDate.parse(raw);
+    if (dt == null) return '';
 
     return _dateFmt.format(dt.toLocal());
   }
@@ -491,6 +500,36 @@ class _SupportPageState extends State<SupportPage> {
                                           active: true,
                                           onTap: _selectSort,
                                         ),
+                                        const SizedBox(width: 8),
+                                        AppFilterChip(
+                                          icon: CupertinoIcons.envelope_open,
+                                          label: 'Открытые',
+                                          active: _statusFilter == 'open',
+                                          onTap:
+                                              () => setState(
+                                                () => _statusFilter = 'open',
+                                              ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        AppFilterChip(
+                                          icon: CupertinoIcons.checkmark_seal,
+                                          label: 'Закрытые',
+                                          active: _statusFilter == 'closed',
+                                          onTap:
+                                              () => setState(
+                                                () => _statusFilter = 'closed',
+                                              ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        AppFilterChip(
+                                          icon: Icons.all_inbox_outlined,
+                                          label: 'Все',
+                                          active: _statusFilter == 'all',
+                                          onTap:
+                                              () => setState(
+                                                () => _statusFilter = 'all',
+                                              ),
+                                        ),
                                         if (hasSearch) ...[
                                           const SizedBox(width: 8),
                                           AppFilterChip(
@@ -576,6 +615,10 @@ class _SupportPageState extends State<SupportPage> {
                                         createdAt: _formatDate(
                                           request['created'] as String?,
                                         ),
+                                        isClosed:
+                                            (request['status'] as String? ??
+                                                'open') ==
+                                            'closed',
                                         userName:
                                             request['user_name'] as String? ??
                                             'Пользователь',
@@ -645,7 +688,7 @@ class _SupportOverviewCard extends StatelessWidget {
                 ),
               ),
               const AppStatusPill(
-                text: 'support',
+                text: 'Поддержка',
                 color: AppColors.accent,
                 icon: Icons.support_agent_rounded,
               ),
@@ -735,6 +778,7 @@ class _StatTile extends StatelessWidget {
 class _SupportRequestCard extends StatelessWidget {
   final String reason;
   final String createdAt;
+  final bool isClosed;
   final String userName;
   final String? userPhoto;
   final bool showUser;
@@ -743,6 +787,7 @@ class _SupportRequestCard extends StatelessWidget {
   const _SupportRequestCard({
     required this.reason,
     required this.createdAt,
+    required this.isClosed,
     required this.userName,
     required this.userPhoto,
     required this.showUser,
@@ -772,7 +817,8 @@ class _SupportRequestCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Text(createdAt, style: AppTextStyles.caption),
+                if (createdAt.isNotEmpty)
+                  Text(createdAt, style: AppTextStyles.caption),
               ],
             ),
             const SizedBox(height: 12),
@@ -783,20 +829,48 @@ class _SupportRequestCard extends StatelessWidget {
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 12),
-          Container(height: 1, color: AppColors.divider),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: AppMetaItem(
-                  icon: CupertinoIcons.calendar_today,
-                  label: 'Создано',
-                  value: createdAt,
+          if (isClosed) ...[
+            const SizedBox(height: 10),
+            const AppStatusPill(
+              text: 'Закрыто',
+              color: AppColors.textMuted,
+              icon: CupertinoIcons.checkmark_seal,
+            ),
+          ],
+          if (createdAt.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: AppMetaItem(
+                    icon: CupertinoIcons.calendar_today,
+                    label: 'Создано',
+                    value: createdAt,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Container(
+                const SizedBox(width: 8),
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppColors.accentSoft,
+                    borderRadius: BorderRadius.circular(AppRadii.sm),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    CupertinoIcons.arrow_right,
+                    size: 17,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Container(
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
@@ -811,8 +885,8 @@ class _SupportRequestCard extends StatelessWidget {
                   color: AppColors.accent,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );

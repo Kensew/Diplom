@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:flutter_freelance_platform/services/pocketbase_service.dart';
+import 'package:flutter_freelance_platform/utils/pocketbase_date.dart';
 
 class SupportRequestsPage extends StatefulWidget {
   const SupportRequestsPage({Key? key}) : super(key: key);
@@ -37,7 +38,7 @@ class _SupportRequestsPageState extends State<SupportRequestsPage> {
     try {
       final records = await PocketBaseService.instance.pb
           .collection('support_requests')
-          .getFullList(sort: '-created');
+          .getFullList(sort: '-id');
 
       _requests =
           records.map((record) {
@@ -91,14 +92,12 @@ class _SupportRequestsPageState extends State<SupportRequestsPage> {
             }
 
             _requests.sort((a, b) {
-              final da = DateTime.tryParse(a['created'] as String? ?? '');
-              final db = DateTime.tryParse(b['created'] as String? ?? '');
-
-              if (da == null && db == null) return 0;
-              if (da == null) return 1;
-              if (db == null) return -1;
-
-              return db.compareTo(da);
+              return PocketBaseDate.compareDescWithId(
+                createdA: a['created'] as String?,
+                createdB: b['created'] as String?,
+                idA: a['id'] as String?,
+                idB: b['id'] as String?,
+              );
             });
           });
         });
@@ -124,8 +123,8 @@ class _SupportRequestsPageState extends State<SupportRequestsPage> {
   }
 
   String _formatDate(String? raw) {
-    final dt = DateTime.tryParse(raw ?? '');
-    if (dt == null) return '—';
+    final dt = PocketBaseDate.parse(raw);
+    if (dt == null) return '';
     return _fmt.format(dt.toLocal());
   }
 
@@ -217,10 +216,13 @@ class _SupportRequestsPageState extends State<SupportRequestsPage> {
                                   reason,
                                   style: TextStyle(color: cs.onSecondary),
                                 ),
-                                subtitle: Text(
-                                  'Date: $date',
-                                  style: TextStyle(color: cs.onSecondary),
-                                ),
+                                subtitle:
+                                    date.isEmpty
+                                        ? null
+                                        : Text(
+                                          date,
+                                          style: TextStyle(color: cs.onSecondary),
+                                        ),
                                 trailing: Icon(
                                   Icons.arrow_forward_ios,
                                   size: 16,

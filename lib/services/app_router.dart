@@ -21,6 +21,7 @@ import '../pages/support_communication_page.dart' as support_chat;
 import '../pages/support_create_page.dart';
 import '../pages/support_orders_page.dart';
 import '../pages/support_page.dart';
+import '../pages/support_users_page.dart';
 import '../pages/task_details_page.dart';
 import '../pages/tasks_communication_page.dart' as task_chat;
 import '../pages/tasks_page.dart';
@@ -148,6 +149,10 @@ class AppRouter {
           GoRoute(
             path: 'orders',
             builder: (context, state) => const SupportOrdersPage(),
+          ),
+          GoRoute(
+            path: 'users',
+            builder: (context, state) => const SupportUsersPage(),
           ),
           GoRoute(
             path: 'new',

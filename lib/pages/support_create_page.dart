@@ -290,7 +290,7 @@ class _SupportIntroCard extends StatelessWidget {
             ),
           ),
           const AppStatusPill(
-            text: 'support',
+            text: 'Поддержка',
             color: AppColors.accent,
             icon: Icons.support_agent_rounded,
           ),
